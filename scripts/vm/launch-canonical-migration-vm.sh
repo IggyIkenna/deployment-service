@@ -416,7 +416,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-kamino-lending-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -880,6 +880,20 @@ _dex_pools_retire_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/retire_dex_pools_legacy_captured_rows_2026_08_05.py${apply_flag}"
+}
+
+# defi-kamino-lending-retire (2026-08-05) -- retires the legacy venue=KAMINO_LENDING
+# captured manifest rows now that every one has a content-verified canonical
+# KAMINO-SOLANA twin (relabel_kamino_lending_venue_2026_08_05.py, an already-run,
+# additive-only companion script). Tiny scope (565 rows across 5 known days) but still a
+# full canonical-index download+rewrite+upload, hence a VM launch per the heavy-I/O rule
+# rather than a local run. $MODE IS honored: dry -> classification count only; full ->
+# --apply (snapshot + write, embedded by the script itself). Manifest-only rewrite --
+# same consolidator-pause precondition as defi-dex-pools-retire.
+_kamino_lending_retire_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/retire_kamino_lending_legacy_venue_2026_08_05.py${apply_flag}"
 }
 
 # defi-pool-casing-fold (2026-08-05) -- classifies + retires the legacy
@@ -1749,6 +1763,16 @@ _launch() {
             return 1
         fi
         cmd="$(_dex_pools_retire_cmd)"
+    elif [[ "$cat" == "defi-kamino-lending-retire" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Manifest-only rewrite
+        # (never a GCS object delete) -- see _kamino_lending_retire_cmd's comment for the
+        # consolidator-pause precondition (not script-enforced, unlike defi-gmx-purge).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-kamino-lending-retire -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_kamino_lending_retire_cmd)"
     elif [[ "$cat" == "defi-pool-casing-fold" ]]; then
         # $MODE IS honored for real -- --apply is embedded by the builder (retires twin-exists rows).
         # --fold-no-twin-cells is a separate, explicit, non-default follow-up pass over the (verified-safe,
@@ -2215,7 +2239,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-kamino-lending-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
