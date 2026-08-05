@@ -401,6 +401,18 @@ resource "google_project_iam_member" "uts_tier_sa_artifactregistry_reader" {
   member   = "serviceAccount:${each.value}"
 }
 
+# gcloud scheduler jobs describe (consolidator-pause precondition checks in one-off
+# GCS-purge scripts, e.g. purge_gas_fees_legacy_venue_prefixes_2026_08_04.py's
+# _assert_consolidator_paused()) -- launchers attaching uts-prd-sa as the VM's runtime
+# SA need this to read Cloud Scheduler job state; read-only (list/get), no job
+# create/update/run/pause capability. Granted 2026-08-05 after a live 403 on the VM.
+resource "google_project_iam_member" "uts_tier_sa_cloudscheduler_viewer" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/cloudscheduler.viewer"
+  member   = "serviceAccount:${each.value}"
+}
+
 # ---------------------------------------------------------------------------
 # P2 (issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md)
 # — wiring deploy-shared.sh (deployment-api's Cloud Run identity) to uts-prd-sa
