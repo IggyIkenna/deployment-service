@@ -116,6 +116,13 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=${PROVIDER}"
 METADATA="${METADATA},SKIP_DEPENDENCY_CHECK=true"
 METADATA="${METADATA},STALL_TIMEOUT_SEC=7200"
 
+# Backfill VMs default to SPOT (workspace HARD RULE).
+if [[ "${ON_DEMAND:-false}" == "true" ]]; then
+    PROVISIONING_FLAGS="--provisioning-model=STANDARD"
+else
+    PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+fi
+
 if [[ "${DRY_RUN:-false}" != "true" ]]; then
     lc_verify_tarball_freshness "$CODE_BUCKET" \
         instruments-service unified-api-contracts unified-trading-library deployment-service \
@@ -128,6 +135,7 @@ gcloud compute instances create "${VM_NAME}" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
+  ${PROVISIONING_FLAGS} \
   --no-restart-on-failure \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
