@@ -279,6 +279,9 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
+    "expected-universe-v2-sports-": "launch-expected-universe-v2-vm.sh",  # same launcher, sports-specific prefix
+    "datapoint-validation-": None,  # per-AG validation pipeline — no single-VM relaunch target
+    "cefi-onchain-fwd-": None,  # onchain forward daily cron — scheduler-owned, no dedicated launcher
     "blank-reason-recon-": "launch-blank-reason-recon-vm.sh",
     # ── Options-chain / CME-events backfills ──────────────────────────────
     "opt-deribit-": "launch-targeted-options-chain-backfill.sh",

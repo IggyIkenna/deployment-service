@@ -1236,4 +1236,23 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # not by resurrecting per-epic VMs.
     # ------------------------------------------------------------------
     "agent-orch-planning-vm-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # ------------------------------------------------------------------
+    # Sports expected-universe v2 backfill (launch-expected-universe-v2-sports-vm.sh).
+    # 71 TERMINATED VMs as of 2026-08-05 from the 2026-08-04 launch wave — prefix
+    # was missing so the watchdog classified them all as keep_not_ephemeral.
+    # bucket=None (heartbeat-only — no per-VM manifest shards).
+    # ------------------------------------------------------------------
+    "expected-universe-v2-sports-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # Datapoint validation VMs (validation pipeline, per-AG).
+    # bucket=None (heartbeat-only).
+    # Registered 2026-08-05 (missed-prefix audit from reapable-VM backlog).
+    # ------------------------------------------------------------------
+    "datapoint-validation-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # CeFi onchain forward daily cron VMs.
+    # bucket=None (heartbeat-only).
+    # Registered 2026-08-05 (missed-prefix audit from zombie-VM backlog).
+    # ------------------------------------------------------------------
+    "cefi-onchain-fwd-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
 }
