@@ -156,6 +156,32 @@ resource "google_project_iam_member" "default_compute_sa_bigquery_job_user" {
   member  = "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
 }
 
+# ---------------------------------------------------------------------------
+# actAs uts-prd-sa — needed by the 30+ launchers not yet wired off the default
+# compute SA (P3.2's tail, per this doc's own header) that already call
+# lc_tier_service_account() to attach uts-prd-sa as the VM's runtime SA. Scoped
+# to ONE target resource (uts-prd-sa), not a project-wide role -- a different
+# category from the broad grants this file exists to shrink. Tracked here
+# (not honest_coverage_scheduler.tf, which is scheduler-specific) because this
+# grant serves the general VM-launcher case, mirroring that file's per-caller
+# actAs pattern for a different target member.
+# ---------------------------------------------------------------------------
+# See prod_vm_launch_missing_service_account_user_grant_2026_08_02.md: every
+# prod-env VM launch from a local/interactive session (default compute SA)
+# attaching uts-prd-sa 403'd on iam.serviceAccountUser. Re-checked this file's
+# own sibling plan (bucket_iam_p2_tier_sa_scope_gap...) before granting: its P0
+# "hybrid C" ruling (2026-07-31) already ratified uts-prd-sa as the correct
+# per-tier target, so this is additive to that direction, not a pre-emption of
+# the still-open launcher-rewiring tail. Granted imperatively 2026-08-05
+# (live-verified: launch-canonical-migration-vm.sh defi-gas-fees-legacy-purge
+# created a running instance, previously 403'd at this exact step); this block
+# makes it the IaC SSOT.
+resource "google_service_account_iam_member" "default_compute_sa_actas_uts_prd_sa" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/uts-prd-sa@${var.project_id}.iam.gserviceaccount.com"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
+}
+
 # =============================================================================
 # ALREADY MANAGED ELSEWHERE (not duplicated here)
 # =============================================================================
@@ -163,7 +189,8 @@ resource "google_project_iam_member" "default_compute_sa_bigquery_job_user" {
 # - roles/pubsub.subscriber (alerting)→ alerting_relay_pubsub.tf (topic-level grant)
 # - roles/pubsub.publisher (features) → features_service_events_pubsub.tf (topic-level grant)
 # - roles/storage.objectViewer (cat.) → catalogue_regen_scheduler.tf (bucket-level grant)
-# - roles/iam.serviceAccountUser      → honest_coverage_scheduler.tf (actAs binding ON the SA)
+# - roles/iam.serviceAccountUser (instruments-service-cloud-run caller) → honest_coverage_scheduler.tf
+# - roles/iam.serviceAccountUser (default compute SA caller) → this file, default_compute_sa_actas_uts_prd_sa above
 #
 # =============================================================================
 # GCP-MANAGED DEFAULTS (auto-granted, harmless, no terraform needed)
