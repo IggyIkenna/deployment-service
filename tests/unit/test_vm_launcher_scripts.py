@@ -1631,11 +1631,9 @@ export -f gsutil
             # logging in --apply mode; the path-bucket checkpoint that DOES exist is unmeasured
             # periodic (every 2000) -- deliberately left unset (todo 5).
             ["defi", "2023-01-01", "2024-12-31", "dry"],
-            # tradfi-catalogue-canon: the script's own per-item marker is real, but is trapped
-            # inside each CANON_SHARDS shard's own redirected /tmp file and never reaches the
-            # tee'd log the watchdog reads -- an architectural gap (todo 9), not fixable by a
-            # metadata regex value.
-            ["tradfi-catalogue-canon", "2023-01-01", "2026-01-30", "dry"],
+            # tradfi-catalogue-canon: FIXED 2026-08-05 (todo 9) -- _catalogue_canon_cmd() now fans
+            # per-shard progress to stdout via `>(tee ...)`, and the STALL_PROGRESS_REGEX is verified
+            # in the positive test below. Removed from this negative guard.
             # *-iah: the script's "progress: N/M objects processed" marker is gated every 5000,
             # but per-asset_group candidate_count is unverified and may never reach 5000 for the
             # smaller buckets -- setting this blind risks a worse-than-fallback false kill (todo 10).
@@ -1648,11 +1646,10 @@ export -f gsutil
         """Regression guard for the narrow scoping: these categories were deliberately left
         WITHOUT a STALL_PROGRESS_REGEX after todo 5's full per-category audit -- either their
         target script has no genuine per-item marker at all, only an unmeasured periodic
-        checkpoint, or (tradfi-catalogue-canon/*-iah) a specific proven risk that setting one would
-        make stall detection WORSE than the byte-growth fallback it replaces. Broadening a regex
-        onto any of these without first closing that specific gap would risk a false-positive
-        stall-kill on a legitimately slow/quiet phase, or (the *-iah/tradfi-catalogue-canon cases)
-        guarantee one."""
+        checkpoint, or (*-iah) a specific proven risk that setting one would make stall detection
+        WORSE than the byte-growth fallback it replaces. Broadening a regex onto any of these
+        without first closing that specific gap would risk a false-positive stall-kill on a
+        legitimately slow/quiet phase, or (the *-iah case) guarantee one."""
         call = self._created_metadata(launcher_path, args, tmp_path)
         assert "STALL_PROGRESS_REGEX=" not in call
 
@@ -1670,6 +1667,10 @@ export -f gsutil
             (
                 ["tradfi-cme-options", "2023-05-01", "2026-01-30", "dry"],
                 r"^day=\S+ options=[0-9]+ futures=[0-9]+ unclassified=",
+            ),
+            (
+                ["tradfi-catalogue-canon", "2023-01-01", "2026-01-30", "dry"],
+                r"progress [0-9]+/[0-9]+ files scanned",
             ),
             (
                 ["cefi-late-renames", "2025-11-01", "2026-07-24", "dry"],

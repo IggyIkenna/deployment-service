@@ -965,7 +965,11 @@ _catalogue_canon_cmd() {
     # rc is collected with a per-PID `wait` (NOT `wait $(jobs -p)`, which returns only the LAST
     # job's status — VERIFIED 2026-07-20: with shard 1 exiting 7 and shard 2 exiting 0 that form
     # reports rc_all=0, silently green-lighting a partially-failed sweep).
-    printf '%s' "cd ${VM_WORKSPACE}/instruments && export GCP_PROJECT_ID=${PROJECT} && export DEPLOYMENT_ENV=${DEPLOYMENT_ENV} && rc_all=0; pids=\"\"; for i in \$(seq 0 \$((${shards}-1))); do python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker} --shard-of ${shards} --shard-index \${i} > /tmp/canon_shard\${i}.log 2>&1 & pids=\"\${pids} \$!\"; done; for p in \${pids}; do wait \${p} || rc_all=1; done; for i in \$(seq 0 \$((${shards}-1))); do echo \"=== SHARD \${i} tail ===\"; tail -6 /tmp/canon_shard\${i}.log; done; echo \"=== CANON ALL-SHARDS COMPLETE rc_all=\${rc_all} ===\"; exit \${rc_all}"
+    # Per-shard output is fanned to BOTH the parent's stdout (so the tee'd log the stall watchdog
+    # reads sees live progress lines) AND the per-shard log file (for the final tail + debugging).
+    # `>(tee ...)` process substitution preserves $! = python PID (not tee's), so per-PID `wait`
+    # correctly detects per-shard failures — VERIFIED that this does NOT regress the rc_all fix above.
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && export GCP_PROJECT_ID=${PROJECT} && export DEPLOYMENT_ENV=${DEPLOYMENT_ENV} && rc_all=0; pids=\"\"; for i in \$(seq 0 \$((${shards}-1))); do python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker} --shard-of ${shards} --shard-index \${i} > >(tee /tmp/canon_shard\${i}.log) 2>&1 & pids=\"\${pids} \$!\"; done; for p in \${pids}; do wait \${p} || rc_all=1; done; for i in \$(seq 0 \$((${shards}-1))); do echo \"=== SHARD \${i} tail ===\"; tail -6 /tmp/canon_shard\${i}.log; done; echo \"=== CANON ALL-SHARDS COMPLETE rc_all=\${rc_all} ===\"; exit \${rc_all}"
 }
 
 # Build the candle-census command (2026-07-22): a READ-ONLY dry-run census of ONE asset_group's
@@ -1792,11 +1796,13 @@ _launch() {
     # stall timer then never resets at all); (b) a single whole-index/whole-manifest vectorized
     # read-transform-write with no internal per-item loop, so no per-item marker can exist even in
     # principle (tradfi-manifest-cas, tradfi-manifest-retire, cefi-eu-twin-apply, cefi-bybit-spot-
-    # purge, manifest-restamp, defi-curve-optimism-reclassify); or (c) an architectural gap where the
-    # real per-item lines never reach the tee'd log the watchdog reads at all (tradfi-catalogue-canon
-    # forks each CANON_SHARDS shard to its OWN `/tmp/canon_shard{i}.log`, only tailed after ALL
-    # shards finish -- no STALL_PROGRESS_REGEX value can fix that; filed as todo 9 below, not
-    # attempted here). *-iah/*-iah-purge were also left unset: their "progress: N/M objects
+    # purge, manifest-restamp, defi-curve-optimism-reclassify); or (c) previously an architectural
+    # gap where the real per-item lines never reached the tee'd log the watchdog reads at all
+    # (tradfi-catalogue-canon forked each CANON_SHARDS shard to its OWN `/tmp/canon_shard{i}.log`,
+    # only tailed after ALL shards finished) -- FIXED 2026-08-05 (todo 9): _catalogue_canon_cmd()
+    # now uses `>(tee ...)` process substitution to fan per-shard progress to stdout in real time,
+    # and the STALL_PROGRESS_REGEX below now covers this category. *-iah/*-iah-purge were also
+    # left unset: their "progress: N/M objects
     # processed" line is gated `done % 5000 == 0`, but the per-asset_group candidate_count is
     # unverified per bucket (452,793 IA + 12,582 ML objects split across 5 buckets total) -- an
     # asset_group with <5000 candidates would NEVER match, which is the worse-than-fallback failure
@@ -1815,6 +1821,14 @@ _launch() {
         # (a separate every-10th-day "progress %d/%d" line exists too -- deliberately NOT used,
         # same periodic-checkpoint shape as the bug this doc fixes).
         md="${md},STALL_PROGRESS_REGEX=^day=\S+ options=[0-9]+ futures=[0-9]+ unclassified="
+    elif [[ "$cat" == "tradfi-catalogue-canon" ]]; then
+        # canonicalize_tradfi_catalogue_usd_lin_2026_07_18.py logs
+        # "  progress %d/%d files scanned (t=%.1fs)" every 200 files inside the per-shard loop.
+        # Each file is a GCS download + parquet read + classify -- even at a conservative 1s/file,
+        # the 200-file gap is ~200s << STALL_TIMEOUT_SEC (1800s). Only effective because
+        # _catalogue_canon_cmd()'s `>(tee ...)` fans per-shard progress to stdout in real time
+        # (fixed 2026-08-05, todo 9); without that, these lines were trapped in per-shard logs.
+        md="${md},STALL_PROGRESS_REGEX=progress [0-9]+/[0-9]+ files scanned"
     elif [[ "$cat" == "cefi-late-renames" ]]; then
         # migrate_cefi_tardis_filename_canonical_2026_07_17.py's build_plan logs
         # "Discovery progress: day=%s cumulative_objects=%d elapsed=%.1fs" once per day iterated;
