@@ -489,3 +489,18 @@ resource "google_storage_bucket_iam_member" "uts_prd_deployment_state_object_adm
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.uts_prd.email}"
 }
+
+# storage.buckets.get (bucket METADATA read, distinct from object read -- objectAdmin/
+# objectUser do NOT include it) -- needed by one-off GCS-purge scripts'
+# gcs_bucket_soft_delete_retention_seconds() §3a delete-safety pre-check
+# (_assert_soft_delete_retention()), which reads the bucket's soft-delete policy before
+# touching any object. Live 403 on uts-prd-sa 2026-08-05 (defi-gas-fees-legacy-purge VM,
+# `storage.buckets.get` denied on market-data-tick-defi-prd-...). Bucket-scoped, not
+# project-wide -- legacyBucketReader also grants storage.objects.list, already covered by
+# the tier-SA's Group-A/B objectAdmin grants elsewhere, so no capability expansion beyond
+# the one needed permission.
+resource "google_storage_bucket_iam_member" "uts_prd_tick_defi_bucket_reader" {
+  bucket = "market-data-tick-defi-prd-${var.project_id}"
+  role   = "roles/storage.legacyBucketReader"
+  member = "serviceAccount:${google_service_account.uts_prd.email}"
+}
