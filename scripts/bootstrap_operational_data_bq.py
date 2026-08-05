@@ -129,6 +129,23 @@ TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str], int | None]]
         ["vm_name"],
         _ONE_YEAR_MS,
     ),
+    "watchdog_kill_events": (
+        [
+            ("ts", "TIMESTAMP", "REQUIRED"),
+            ("vm_name", "STRING", "NULLABLE"),
+            ("pid", "INTEGER", "NULLABLE"),
+            ("slot_id", "STRING", "NULLABLE"),
+            ("command", "STRING", "NULLABLE"),
+            ("reason", "STRING", "NULLABLE"),
+            ("rss_mb", "INTEGER", "NULLABLE"),
+            ("limit_mb", "INTEGER", "NULLABLE"),
+            ("pressure_level", "STRING", "NULLABLE"),
+            ("killed", "BOOLEAN", "NULLABLE"),
+        ],
+        "ts",
+        ["vm_name"],
+        _ONE_YEAR_MS,
+    ),
     # 4th signal (process-category breakdown) — multi-tenant hosts only, see
     # the plan's "4th signal detail" section. Schema mirrors the bridge
     # resource-monitor.sh cron's field list (the reference schema for this table).
