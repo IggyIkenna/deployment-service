@@ -19,10 +19,7 @@ from .sports_trigger_state import FixtureInfo, as_int
 
 logger = logging.getLogger(__name__)
 
-try:
-    from unified_api_contracts.sports import get_league as _uac_get_league
-except ImportError:  # pragma: no cover - UAC unavailable in bare-minimal env
-    _uac_get_league = None  # type: ignore[assignment]
+from unified_api_contracts.sports import get_league as _uac_get_league
 
 
 def _league_has_odds_coverage(league_id: str) -> bool:
@@ -30,11 +27,7 @@ def _league_has_odds_coverage(league_id: str) -> bool:
 
     Returns ``False`` when the league is not found in the registry at all,
     or when its ``data_sources`` frozenset does not include ``"odds_api"``.
-    Gracefully returns ``True`` (pass-through) when UAC is unavailable so a
-    missing-dependency env doesn't silently suppress dispatches.
     """
-    if _uac_get_league is None:
-        return True  # no UAC → pass-through (existing behaviour)
     league_def = _uac_get_league(league_id)
     if league_def is None:
         logger.debug("League %s not found in UAC registry — treating as no odds coverage", league_id)
