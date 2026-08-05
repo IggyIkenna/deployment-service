@@ -1750,17 +1750,19 @@ _launch() {
         fi
         cmd="$(_dex_pools_retire_cmd)"
     elif [[ "$cat" == "defi-pool-casing-fold" ]]; then
-        # $MODE IS honored for real -- --apply is embedded by the builder (retires twin-exists rows
-        # only; --fold-no-twin-cells is a separate, explicit, non-default follow-up, never wired
-        # through MIGRATION_EXTRA_ARGS here to avoid it being silently combined with --apply on a
-        # first run). Manifest-only rewrite -- same consolidator-pause precondition as
-        # defi-dex-pools-retire.
-        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
-            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-pool-casing-fold -- the mode" >&2
-            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+        # $MODE IS honored for real -- --apply is embedded by the builder (retires twin-exists rows).
+        # --fold-no-twin-cells is a separate, explicit, non-default follow-up pass over the (verified-safe,
+        # see plans/active/defi_distinct_values_zero_noncanonical_dispatch_2026_08_04.md row 2) no-twin
+        # population -- allow-listed to EXACTLY that one flag (not a blind MIGRATION_EXTRA_ARGS append) so
+        # a fat-fingered/unrelated extra-args value can never land mid-command. Manifest-only rewrite --
+        # same consolidator-pause precondition as defi-dex-pools-retire.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" && "${MIGRATION_EXTRA_ARGS}" != "--fold-no-twin-cells" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS for defi-pool-casing-fold only accepts the literal value" >&2
+            echo "       '--fold-no-twin-cells' -- got: ${MIGRATION_EXTRA_ARGS}" >&2
             return 1
         fi
         cmd="$(_pool_casing_fold_cmd)"
+        [[ "${MIGRATION_EXTRA_ARGS:-}" == "--fold-no-twin-cells" ]] && cmd="$cmd --fold-no-twin-cells"
     elif [[ "$cat" == "defi-dex-pool-leaf-purge" ]]; then
         # $MODE IS honored for real -- --apply is embedded by the builder. Plain object-level GCS
         # deletes only (never a manifest write), so no consolidator-drain gate is needed (mirrors
