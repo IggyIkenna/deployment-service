@@ -856,6 +856,50 @@ _gas_fees_legacy_purge_cmd() {
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gas_fees_legacy_venue_prefixes_2026_08_04.py --project-id ${PROJECT}${mode_flag}${skip_flag}"
 }
 
+# defi-composite-venue-trace (2026-08-05) -- read-only diagnostic for the 22
+# non-canonical composite PROTOCOL-CHAIN venues with manifest rows but no backing GCS
+# objects (defi_underscored_multichain_composite_venue_fold_2026_08_04.md). $MODE is
+# ignored -- this script has no --apply path at all (read-only), always the same
+# command regardless of dry/full. Needs MANIFEST_PER_VM_SHARDS unset (read-only, no
+# writer instantiated) and no consolidator-drain gate (nothing written).
+_composite_venue_trace_cmd() {
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/trace_composite_venue_provenance_2026_08_05.py"
+}
+
+# defi-dex-pools-retire (2026-08-05) -- manifest-only retirement of the legacy
+# `dex_pools` captured rows for ORCA/RAYDIUM (content-verified redundant with an
+# already-existing canonical dex_pool_state twin, see the script's own docstring).
+# $MODE IS honored: dry (default) -> classification only; full -> --apply (snapshot +
+# write + round-trip verify, embedded by the script itself, not this builder). Never a
+# GCS object delete (manifest-only, additive snapshot + status-flip), but it DOES
+# rewrite the canonical _index -- pause the manifest consolidator cron first
+# (mirrors defi-gas-fees-legacy-purge's own precondition, done by the operator/session
+# launching this, not gated in-script here since this script has no consolidator-aware
+# precondition check of its own).
+_dex_pools_retire_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/retire_dex_pools_legacy_captured_rows_2026_08_05.py${apply_flag}"
+}
+
+# defi-pool-casing-fold (2026-08-05) -- classifies + retires the legacy
+# instrument_type=POOL cells (~1.9M rows, dex_pool_swaps/dex_swaps) that already have a
+# content-verified canonical `pool`-cased twin; the (likely much smaller) no-twin
+# population is reported but NOT touched by default (needs a separate, explicit
+# --fold-no-twin-cells re-run once someone reviews the no-twin sample). $MODE IS
+# honored: dry -> classification only; full -> --apply (retire twin-exists rows only).
+# Same manifest-rewrite profile as defi-dex-pools-retire -- pause the consolidator
+# cron first. Bumps MACHINE_TYPE (e2-standard-8 -> e2-standard-16) by default since
+# Pass 1 holds two in-memory key sets (legacy + canonical cells) that could be large
+# for this data_type/row-count combination -- not yet measured at full scale, so
+# erring toward headroom rather than re-discovering an OOM on a 1.9M-row corpus. An
+# explicit caller-supplied MACHINE_TYPE always wins (never overridden here).
+_pool_casing_fold_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/fold_pool_instrument_type_casing_2026_08_05.py${apply_flag}"
+}
+
 # DeFi lst_rates FLAGGED-marker fold (2026-07-25) -- in-region runner for
 # scripts/one_offs/fold_lst_rates_migrated_markers_2026_07_25.py. FOLD-NOT-PURGE: the tool's own
 # --apply mode only ever WRITES a sibling per-instrument leaf (gcs_copy_object true-copy, or a
@@ -1466,6 +1510,12 @@ _launch() {
     if [[ "$cat" == "cefi-content-apply" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
         MACHINE_TYPE="e2-standard-16"
     fi
+    # defi-pool-casing-fold default MACHINE_TYPE bump (2026-08-05) -- see
+    # _pool_casing_fold_cmd's comment. Untested at full 1.9M-row scale; erring toward
+    # headroom for Pass 1's in-memory key-set classification.
+    if [[ "$cat" == "defi-pool-casing-fold" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
+        MACHINE_TYPE="e2-standard-16"
+    fi
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
     # BUG FOUND 2026-07-22 (candle-apply adversarial self-test, SHARD_OF=3 preview): "<ag>-candle-apply"
@@ -1681,6 +1731,36 @@ _launch() {
         # so no consolidator-drain gate is required (unlike defi-gmx-purge/cefi-bybit-spot-purge).
         cmd="$(_lst_rates_fold_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "defi-composite-venue-trace" ]]; then
+        # $MODE is ignored -- read-only diagnostic, no --apply path at all. See
+        # _composite_venue_trace_cmd's comment.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-composite-venue-trace." >&2
+            return 1
+        fi
+        cmd="$(_composite_venue_trace_cmd)"
+    elif [[ "$cat" == "defi-dex-pools-retire" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Manifest-only rewrite
+        # (never a GCS object delete) -- see _dex_pools_retire_cmd's comment for the
+        # consolidator-pause precondition (not script-enforced, unlike defi-gmx-purge).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-dex-pools-retire -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_dex_pools_retire_cmd)"
+    elif [[ "$cat" == "defi-pool-casing-fold" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder (retires twin-exists rows
+        # only; --fold-no-twin-cells is a separate, explicit, non-default follow-up, never wired
+        # through MIGRATION_EXTRA_ARGS here to avoid it being silently combined with --apply on a
+        # first run). Manifest-only rewrite -- same consolidator-pause precondition as
+        # defi-dex-pools-retire.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-pool-casing-fold -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_pool_casing_fold_cmd)"
     elif [[ "$cat" == "defi-dex-pool-leaf-purge" ]]; then
         # $MODE IS honored for real -- --apply is embedded by the builder. Plain object-level GCS
         # deletes only (never a manifest write), so no consolidator-drain gate is needed (mirrors
