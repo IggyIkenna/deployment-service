@@ -135,6 +135,8 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "tradfi-phantom-audit": None,  # read-only audit — not a relaunch target
     # ── MDPS sharded backfill (per asset_group) ───────────────────────────
     "mdps-cefi-": "launch-mdps-sharded-backfill.sh",
+    # One-off MDPS cefi manifest merge (cefi_satellite_ao_dispatch_batch5 todo 3)
+    "mdps-cefi-manifest-merge-": "launch-mdps-cefi-manifest-merge.sh",
     "mdps-tradfi-": "launch-mdps-sharded-backfill.sh",
     "mdps-defi-": "launch-mdps-sharded-backfill.sh",
     "mdps-prediction-": "launch-mdps-sharded-backfill.sh",

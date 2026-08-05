@@ -324,6 +324,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # MDPS sharded backfill (per asset_group)
     # ------------------------------------------------------------------
     "mdps-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # One-off MDPS cefi manifest merge (cefi_satellite_ao_dispatch_batch5 todo 3).
+    # Runs merge_manifest_from_canonical_paths additively on processed_candles/by_date.
+    # Heartbeat-only — writes directly to the manifest index, not per-VM shards.
+    "mdps-cefi-manifest-merge-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
