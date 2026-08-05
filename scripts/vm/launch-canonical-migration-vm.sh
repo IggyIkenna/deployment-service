@@ -416,7 +416,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|prediction|sports-mdps|sports-instruments|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|prediction|sports-mdps|sports-instruments|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -1084,6 +1084,20 @@ _candle_apply_cmd() {
     printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && ${enum_step} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
+# Build the cefi MDPS manifest merge command (2026-08-05,
+# cefi_satellite_ao_dispatch_batch5_2026_08_02.md todo 3) — ADDITIVE-ONLY manifest
+# reconciliation for the cefi trades gap-fill campaign. Runs
+# unified-trading-library/scripts/merge_mdps_cefi_manifest.py which wraps
+# merge_manifest_from_canonical_paths with bucket=market-data-tick-cefi-prd,
+# service_name=market-data-processing-service, prefix=processed_candles/by_date.
+# The tool is ADDITIVE ONLY (discovered - existing → existing + new_only) —
+# every co-located raw_tick_data row survives untouched, re-running is a no-op.
+# $MODE is deliberately IGNORED — the tool has NO --apply/--dry-run flag;
+# its idempotent design is its own write-safety.
+_cefi_mdps_manifest_merge_cmd() {
+    printf '%s' "cd ${VM_WORKSPACE}/utl && python -u scripts/merge_mdps_cefi_manifest.py"
+}
+
 # Build the candle-orphan-sweep command (2026-07-27, todo 1 of
 # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md) — READ-ONLY GCS->manifest
 # orphan sweep for ONE asset_group's processed_candles/ corpus (market-data-processing-
@@ -1614,6 +1628,17 @@ _launch() {
             return 1
         fi
         cmd="$(_candle_orphan_sweep_cmd "${cat%-candle-orphan-sweep}" "$vm_name")"
+    elif [[ "$cat" == "cefi-mdps-manifest-merge" ]]; then
+        # MDPS manifest merge for cefi trades gap-fill (2026-08-05,
+        # cefi_satellite_ao_dispatch_batch5_2026_08_02.md todo 3) — self-contained
+        # `cd ... && python ...` single invocation. $MODE is deliberately IGNORED
+        # (the tool is ADDITIVE ONLY with no --apply/--dry-run flag — its idempotent
+        # design is its own write-safety; re-running is a no-op).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for cefi-mdps-manifest-merge" >&2
+            return 1
+        fi
+        cmd="$(_cefi_mdps_manifest_merge_cmd)"
     elif [[ "$cat" == "defi-marker-cleanup" ]]; then
         # DRY-RUN ONLY, HARD -- $MODE is deliberately IGNORED and forced to "dry" (mirrors
         # *-candle-census): this category has NO reachable --apply code path through this launcher,
@@ -1744,6 +1769,8 @@ _launch() {
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
+    # cefi-mdps-manifest-merge — normalize to CEFI for dashboards/heartbeat
+    [[ "$cat" == "cefi-mdps-manifest-merge" ]] && _ag="CEFI"
     # *-iah category names are "<ag>-iah" -- strip the suffix to recover the real asset group so
     # dashboards/heartbeat classify these VMs with the rest of that asset group instead of a novel
     # "<AG>-IAH" bucket (same suffix-strip convention as candle-census/candle-apply above).
@@ -2098,7 +2125,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
