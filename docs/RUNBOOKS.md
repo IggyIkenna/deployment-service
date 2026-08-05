@@ -223,7 +223,7 @@ alert is a denominator artifact, not evidence of a new capture regression.
 2. **Check the STATIC BACKLOG annotation.** The alert body includes staleness
    annotations from `attempted_failed_staleness.py`. A "STATIC BACKLOG" label with
    `no new attempted_failed activity in Nd` confirms this is the known artifact.
-3. **Verify via the manifest.** Query `instruments-store-sports-prd-central-element-323112`
+3. **Verify via the manifest.** Query `instruments-store-sports-prd-{project_id}`
    `_index/availability_index.parquet` for `asset_group=sports, data_type=TRADES`
    — check whether `captured` is still climbing (normal lower-case capture continues)
    while `attempted_failed` is static.
