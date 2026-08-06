@@ -2558,29 +2558,68 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
     exit 1
   fi
 
+  # Consolidated topology (operator-ruled 2026-08-06, option (i)): run
+  # MDPS_SHARDS_PER_WORKER shards per worker PROCESS instead of one process per
+  # shard (the 2026-07-29 option (a) topology that OOM-killed a worker within
+  # ~2.5 min at CEFI's 117-shard scale and is categorically infeasible at
+  # DeFi's 3,535). Each grouped worker passes its shards as a comma-separated
+  # MDPS_SHARD_SPEC, bridged to --shard-specs by cli/main.py — each shard
+  # becomes its own async aggregator + DISTINCT Redis consumer in the shared
+  # "mdps" group (market-data-processing-service@df45ef8). Default 1 = today's
+  # exact one-process-per-shard behaviour.
+  _mfl_shards_per_worker="${MDPS_SHARDS_PER_WORKER:-1}"
+  case "$_mfl_shards_per_worker" in
+    '' | *[!0-9]*)
+      _mfl_shards_per_worker=1
+      ;;
+  esac
+  [[ "$_mfl_shards_per_worker" -lt 1 ]] && _mfl_shards_per_worker=1
+
   _MFL_SCRIPT="$WORKSPACE/mdps_features_live_fanout.sh"
   {
     echo '#!/usr/bin/env bash'
     echo 'set -uo pipefail  # NOT -e: a false `[[ rc -ne 0 ]] &&` must not exit the supervisor'
     echo 'PIDS=()'
     _mfl_k=0
+    _mfl_batch_specs=()
+    # Flush the accumulated shard batch as ONE worker process. Defined inside
+    # this block so its printf goes through the same >"$_MFL_SCRIPT" redirect.
+    _mfl_flush() {
+      # Explicit `return 0` on the empty-batch guard: under `set -e` a bare
+      # `[[ ... ]] && return` would exit the function with status 1, which the
+      # final unconditional `_mfl_flush` call would then abort the whole script
+      # on for an asset_group with ZERO MDPS shards but live features families
+      # (e.g. prediction/sports — mdps_mvp_universe returns an empty frozenset).
+      if [[ ${#_mfl_batch_specs[@]} -eq 0 ]]; then
+        return 0
+      fi
+      printf 'echo "[mdps-features-live] MDPS worker %s (VM_NAME=%s-mdps-p%s) shards=%s"\n' \
+        "$_mfl_k" "$VM_NAME_SELF" "$_mfl_k" "${#_mfl_batch_specs[@]}"
+      local _mfl_joined
+      _mfl_joined=$(IFS=,; printf '%s' "${_mfl_batch_specs[*]}")
+      # Real entry point is ServiceBootstrap (`python -m market_data_processing_service`),
+      # whose own top-level --operation axis has choices={process} only — the legacy
+      # streaming-aggregation operation + shard-specs bridge in via the MDPS_OPERATION /
+      # MDPS_SHARD_SPEC env vars (_bridge_operation_and_build_continuous_args(),
+      # market-data-processing-service@213e133 + the multi-spec --shard-specs bridge
+      # from the 2026-08-06 consolidation), never as positional/flag argv the real
+      # entry point can't reach. See mdps_features_live_streaming_aggregation_never_actually_invocable
+      # issue doc, 2026-08-04.
+      printf 'VM_NAME="%s-mdps-p%s" MDPS_OPERATION=streaming-aggregation MDPS_SHARD_SPEC=%s "%s" -m market_data_processing_service --operation process --mode live --start-date %s --end-date %s &\n' \
+        "$VM_NAME_SELF" "$_mfl_k" "$_mfl_joined" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY"
+      echo 'PIDS+=($!)'
+      _mfl_k=$((_mfl_k + 1))
+      _mfl_batch_specs=()
+    }
     for _mfl_shard in "${_MDPS_SHARDS[@]}"; do
       _mfl_venue="${_mfl_shard%%:*}"
       _mfl_dtype="${_mfl_shard##*:}"
-      printf 'echo "[mdps-features-live] MDPS worker %s (VM_NAME=%s-mdps-p%s) shard-spec=%s:%s:%s"\n' \
-        "$_mfl_k" "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype"
-      # Real entry point is ServiceBootstrap (`python -m market_data_processing_service`),
-      # whose own top-level --operation axis has choices={process} only — the legacy
-      # streaming-aggregation operation + --shard-spec bridge in via the MDPS_OPERATION /
-      # MDPS_SHARD_SPEC env vars (_bridge_operation_and_build_continuous_args(),
-      # market-data-processing-service@213e133), never as positional/flag argv the real
-      # entry point can't reach. See mdps_features_live_streaming_aggregation_never_actually_invocable
-      # issue doc, 2026-08-04.
-      printf 'VM_NAME="%s-mdps-p%s" MDPS_OPERATION=streaming-aggregation MDPS_SHARD_SPEC=%s:%s:%s "%s" -m market_data_processing_service --operation process --mode live --start-date %s --end-date %s &\n' \
-        "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY"
-      echo 'PIDS+=($!)'
-      _mfl_k=$((_mfl_k + 1))
+      _mfl_batch_specs+=("${_AG_LOWER}:${_mfl_venue}:${_mfl_dtype}")
+      if [[ ${#_mfl_batch_specs[@]} -ge "$_mfl_shards_per_worker" ]]; then
+        _mfl_flush
+      fi
     done
+    _mfl_flush
     for _mfl_family in "${_LIVE_FAMILIES[@]}"; do
       # Mirrors launch-features-vm.sh's per-family CLI-flag construction: calendar's CLI
       # does not accept --asset-group (global output); delta_one/volatility/onchain accept
