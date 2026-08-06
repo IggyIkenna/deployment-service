@@ -266,7 +266,7 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
                 _mono="${_marker##*monotonic=}"
                 printf '{"last_completed_date":"%s","monotonic":%s,"vm_name":"%s","updated":"%s"}\n' \
                     "$_lcd" "$_mono" "$VM_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                    | gsutil -q cp - "${GCS_DIR}/PROGRESS.json" 2>/dev/null || true
+                    | timeout 30 gcloud storage cp - "${GCS_DIR}/PROGRESS.json" --quiet 2>/dev/null || true
             fi
         fi
         if [[ -n "$STALL_PROGRESS_REGEX" ]]; then
@@ -332,14 +332,14 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
                 # re-reads them whole together with whatever's appended by then.
             fi
             echo "watchdog iter=$iteration mode=progress size=$cur_size progress=$made_progress last_progress_size=$last_progress_size ts=$now" >> "$WATCHDOG_HEARTBEAT"
-            gsutil -q cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" 2>/dev/null || true
+            timeout 30 gcloud storage cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" --quiet 2>/dev/null || true
             if [[ "$made_progress" == "1" ]]; then
                 last_change_epoch=$now
                 continue
             fi
         else
             echo "watchdog iter=$iteration mode=size size=$cur_size last=$last_size ts=$now" >> "$WATCHDOG_HEARTBEAT"
-            gsutil -q cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" 2>/dev/null || true
+            timeout 30 gcloud storage cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" --quiet 2>/dev/null || true
             if [[ "$cur_size" != "$last_size" ]]; then
                 last_size=$cur_size
                 last_change_epoch=$now
@@ -411,13 +411,13 @@ fi
 # Inline fallback upload — only does anything useful when the daemon either
 # never started or was SIGKILLed before its final upload. Harmless when the
 # daemon already uploaded (it just re-uploads the same bytes).
-gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
-echo "$RC" | gsutil -q cp - "$EXIT_STATUS_URI" 2>/dev/null || true
+timeout 60 gcloud storage cp "$LOCAL_LOG" "$GCS_LOG_URI" --quiet 2>/dev/null || true
+echo "$RC" | timeout 30 gcloud storage cp - "$EXIT_STATUS_URI" --quiet 2>/dev/null || true
 # Durable final snapshot fallback — same belt-and-braces reasoning as above:
 # a hard-killed daemon (SIGKILL after the 30s grace window) never reaches
 # HeartbeatDaemon._write_final_log_snapshot(), so this SIGKILL path is the
 # only remaining writer of the durable final copy for that VM.
-gsutil -q cp "$LOCAL_LOG" "$FINAL_LOG_URI" 2>/dev/null || true
+timeout 60 gcloud storage cp "$LOCAL_LOG" "$FINAL_LOG_URI" --quiet 2>/dev/null || true
 
 FINAL_STATUS="completed"
 [[ "$RC" -ne 0 ]] && FINAL_STATUS="failed"
@@ -448,7 +448,7 @@ if [[ "$SHUTDOWN_ON_COMPLETION" == "true" ]]; then
         'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print $NF}')"
     if [[ -n "$VM_NAME_SELF" && -n "$VM_ZONE_SELF" ]]; then
         echo "[vm-exec] VM_SHUTDOWN_ON_COMPLETION=true — scheduling self-delete of $VM_NAME_SELF in $VM_ZONE_SELF" >> "$LOCAL_LOG"
-        gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
+        timeout 60 gcloud storage cp "$LOCAL_LOG" "$GCS_LOG_URI" --quiet 2>/dev/null || true
         # Pre-kill hook (2026-05-27): backup logs before self-delete
         # Best-effort — don't block delete if backup fails
         # setsid + nohup + disown detach from this script so SIGHUP on VM
