@@ -148,7 +148,7 @@ class TestLauncherCommonLibrary:
         assert result.returncode == 0
         output = result.stdout
 
-        sentinel_line = 'echo "RUNNING" | gsutil -q cp - "$GCS_EXIT_URI"'
+        sentinel_line = 'echo "RUNNING" | timeout 30 gcloud storage cp - "$GCS_EXIT_URI" --quiet'
         assert sentinel_line in output
         # Must be stamped BEFORE the trap install, so a mid-run whole-unit
         # kill can never leave a stale prior-run terminal code readable.
