@@ -586,6 +586,7 @@ def main(argv: list[str] | None = None) -> int:
                     launcher_for_vm=_launcher_for_vm,
                     umbrella_for_vm=_umbrella_for_vm,
                     preemption_op_checker=_compute_ops.make_preemption_op_checker(_project_id()),
+                    scheduling_model_checker=_compute_ops.make_scheduling_model_checker(_project_id()),
                     finding_sink=ec_findings,
                     pm_repo_path=pm_repo_path,
                     dry_run=dry_run,

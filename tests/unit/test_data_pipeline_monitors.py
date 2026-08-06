@@ -24,6 +24,7 @@ import pytest
 from unified_trading_library import MaintenanceWindow
 
 from deployment_service.data_pipeline_monitors import (
+    _compute_ops,
     _gcs,
     consolidator_scheduler_watcher,
     escalation,
@@ -535,6 +536,68 @@ def test_classify_preempted_overrides_gone_no_capture():
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
 
 
+# ── cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md ──
+# cefi-fwd-20260806-064507: scheduling.provisioningModel=STANDARD, deliberately
+# instances.stop'd by unified-trading-sa, zero actual compute.instances.preempted
+# operations — yet classify_terminated_vm resolved PREEMPTED and paged a
+# CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH once its relaunch (correctly) found
+# nothing to resume. A STANDARD instance is structurally incapable of GCE
+# preemption, so `is_spot=False` must VETO a `preempted=True` input regardless
+# of exit_code/captured shape.
+def test_classify_is_spot_false_vetoes_preempted_verdict_over_exit_nonzero():
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "cefi-fwd-20260806-064507",
+        exit_code=1,
+        captured_before=0,
+        captured_after=0,
+        preempted=True,
+        is_spot=False,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+    assert res.preempted is False
+
+
+def test_classify_is_spot_false_vetoes_preempted_verdict_over_gone_no_capture():
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "cefi-fwd-20260806-064507",
+        exit_code=None,
+        captured_before=50,
+        captured_after=50,
+        preempted=True,
+        is_spot=False,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+    assert res.preempted is False
+
+
+def test_classify_is_spot_true_keeps_preempted_verdict():
+    # A genuinely-SPOT instance confirming preempted=True keeps the benign path.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "cefi-binance-2020-g01-20260101", exit_code=1, captured_before=0, captured_after=0, preempted=True, is_spot=True
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert res.preempted is True
+
+
+def test_classify_is_spot_none_preserves_existing_behavior():
+    # Unresolvable scheduling config (default) must NOT suppress — the caller
+    # simply didn't/couldn't pass a checker; today's behavior is unchanged.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "af-backfill-vm-002", exit_code=1, captured_before=0, captured_after=0, preempted=True
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert res.preempted is True
+
+
+def test_classify_is_spot_false_is_a_no_op_when_preempted_is_already_false():
+    # The veto only matters when preempted=True; a normal non-preempted
+    # classification must be completely unaffected by is_spot's value.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "vm", exit_code=137, captured_before=0, captured_after=0, preempted=False, is_spot=False
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+
+
 def test_is_vm_preempted_true_when_blob_exists():
     storage = FakeStorage({(LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm="af-backfill-001")): (b"preempted", 0.0)})
     assert _gcs.is_vm_preempted(storage, LOG_BUCKET, "af-backfill-001") is True
@@ -711,6 +774,180 @@ def test_sweep_op_checker_not_consulted_when_gcs_marker_already_present(monkeypa
     )
     assert checked == [], "op-checker must not be called when the GCS PREEMPTED marker already resolved it"
     assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_sweep_standard_vm_false_preempted_signal_vetoed_no_critical_no_relaunch(monkeypatch):
+    # Full reproduction of cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md:
+    # cefi-fwd-20260806-064507 carried a (wrong) PREEMPTED GCS marker despite being
+    # a GCE STANDARD (on-demand) instance deliberately instances.stop'd by our own
+    # system — zero actual compute.instances.preempted operations occurred. Before
+    # this fix the sweep trusted the marker unconditionally, resolved PREEMPTED,
+    # attempted a relaunch that found nothing to resume, and paged a CRITICAL
+    # DP_VM_PREEMPTED_NO_RELAUNCH for a VM that was never actually preempted. The
+    # scheduling_model_checker must veto this to the VM's genuine flat-captured
+    # GONE_NO_CAPTURE shape instead.
+    vm = "cefi-fwd-20260806-064507"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            # The (incorrect) PREEMPTED marker — whatever wrote it, the veto must
+            # not depend on knowing why.
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    emitted = _patch_dp_log_event(monkeypatch)
+    checked: list[str] = []
+
+    def fake_scheduling_model_checker(vm_name: str) -> str | None:
+        checked.append(vm_name)
+        return "STANDARD"
+
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 0,  # flat — never captured anything (~8min lifetime)
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "launch-cefi-forward-poll.sh",
+        scheduling_model_checker=fake_scheduling_model_checker,
+    )
+    assert checked == [vm], "the scheduling-model checker must be consulted on the candidate-preempted path"
+    assert results[0].verdict is not exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+    assert not any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" for e in emitted), (
+        f"a STANDARD-provisioned VM must never produce a PREEMPTED-relaunch-failure page: {emitted}"
+    )
+
+
+def test_sweep_scheduling_model_checker_confirms_spot_keeps_preempted_verdict(monkeypatch):
+    # Sanity: a genuinely-SPOT instance must NOT be affected by the veto.
+    vm = "cefi-binance-2020-g01-20260101-000000"
+    census = json.dumps({"vms": {vm: 50}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    _patch_dp_log_event(monkeypatch)
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 50,
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "",
+        scheduling_model_checker=lambda _vm: "SPOT",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_sweep_scheduling_model_checker_not_consulted_when_never_preempted(monkeypatch):
+    # Bounded-cost invariant, same shape as the op-checker's equivalent guard:
+    # a VM that never carries a preempted=True candidate signal must never pay
+    # for the extra scheduling-model API call.
+    vm = "some-clean-vm-001"
+    census = json.dumps({"vms": {vm: 10}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.EXIT_STATUS_BLOB.format(vm=vm)): (b"0\n", 0.0),
+        }
+    )
+    _patch_dp_log_event(monkeypatch)
+    checked: list[str] = []
+
+    def fake_scheduling_model_checker(vm_name: str) -> str | None:
+        checked.append(vm_name)
+        return "STANDARD"
+
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 200,  # climbed → CLEAN, never a preemption candidate
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "",
+        scheduling_model_checker=fake_scheduling_model_checker,
+    )
+    assert checked == [], "scheduling_model_checker must not be called off the candidate-preempted path"
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.CLEAN
+
+
+def test_sweep_scheduling_model_checker_unresolvable_preserves_existing_behavior(monkeypatch):
+    # A checker that cannot resolve the instance (already deleted / API error)
+    # returns None — must NOT suppress the PREEMPTED verdict.
+    vm = "cefi-fwd-20260806-070000"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    _patch_dp_log_event(monkeypatch)
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "",
+        scheduling_model_checker=lambda _vm: None,
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_sweep_scheduling_model_checker_raising_falls_back_to_trusting_preempted(monkeypatch):
+    # Never let a checker failure crash the sweep — degrade to "trust the signal
+    # as-is" (same never-raises discipline as preemption_op_checker's own guard).
+    vm = "cefi-fwd-20260806-071500"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    _patch_dp_log_event(monkeypatch)
+
+    def raising_checker(_vm: str) -> str | None:
+        raise RuntimeError("transient RPC failure")
+
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "",
+        scheduling_model_checker=raising_checker,
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_make_scheduling_model_checker_never_raises_on_api_failure(monkeypatch):
+    def _boom(**_kwargs):  # noqa: ANN003
+        raise RuntimeError("credentials unavailable")
+
+    monkeypatch.setattr(_compute_ops, "get_compute_engine_client", _boom)
+    checker = _compute_ops.make_scheduling_model_checker("some-project")
+    assert checker("any-vm") is None
+
+
+def test_make_scheduling_model_checker_reads_the_matching_row(monkeypatch):
+    class _FakeComputeClient:
+        def aggregated_list_instances(self, _project_id: str, _filter_str: str) -> list[dict[str, object]]:
+            return [
+                {"name": "other-vm", "scheduling_provisioning_model": "SPOT"},
+                {"name": "cefi-fwd-20260806-064507", "scheduling_provisioning_model": "STANDARD"},
+            ]
+
+    monkeypatch.setattr(_compute_ops, "get_compute_engine_client", lambda **_kwargs: _FakeComputeClient())
+    checker = _compute_ops.make_scheduling_model_checker("test-project")
+    assert checker("cefi-fwd-20260806-064507") == "STANDARD"
+    assert checker("totally-unknown-vm") is None
 
 
 def test_sweep_partial_unconfirmed_vm_relaunches_successfully_emits_warn_not_critical(tmp_path: Path, monkeypatch):
