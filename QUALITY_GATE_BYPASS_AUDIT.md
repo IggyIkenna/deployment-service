@@ -771,3 +771,22 @@ helper (§2.20 row): a `resolve_bucket_name()` failure (unknown/misclassified as
 best-effort-cloud-read tradeoff, narrower in scope to one function.
 
 **Resolution path:** None planned — same permanent pattern as §2.19/§2.20.
+
+## 2.22 Broad except Exception — `_compute_ops.py` + `consolidator_oom_watcher.py` (same never-raises pattern)
+
+**Date:** 2026-08-06
+**Files:** `deployment_service/data_pipeline_monitors/_compute_ops.py` (`_check` in the preemption probe,
+provisioning-model lookup), `deployment_service/data_pipeline_monitors/consolidator_oom_watcher.py` (`_read`,
+per-asset_group manifest-consolidator memory reader)
+**Rule:** `except Exception:` (broad except, 3 occurrences)
+**Status:** JUSTIFIED — identical pattern to §2.19/§2.20/§2.21
+
+`_compute_ops.py`'s `_check`/provisioning-model helpers are Compute Engine API probes (mirrors
+`unified-trading-library`'s own `was_instance_preempted`, documented in ITS
+`QUALITY_GATE_BYPASS_AUDIT.md` §2.1a) — a query failure degrades to `False`/`None` (conservatively "not
+preempted" / "provisioning model unknown") rather than crashing the fleet monitor's sweep for one VM.
+`consolidator_oom_watcher.py`'s `_read` is a per-asset_group GCS bucket-memory-stat read; a failure returns
+`None` (no OOM signal for that asset_group this tick) rather than aborting the watcher for every other
+asset_group in the same sweep. Same best-effort-cloud-read tradeoff as every other entry in this section.
+
+**Resolution path:** None planned — same permanent pattern as §2.19/§2.20/§2.21.

@@ -44,7 +44,13 @@ def get_service_name() -> str:
 
 
 def find_python_files(service_dir: Path) -> list[Path]:
-    exclude = {"tests", ".venv", "venv", "__pycache__", ".git", "examples"}
+    # ".claude" excludes nested per-agent git worktrees (.claude/worktrees/<id>/) —
+    # a worktree's own vendored/symlinked files (e.g. .cursor/scripts/) can be
+    # broken/incomplete relative to this checkout, and scanning another
+    # worktree's source for THIS repo's event markers is never the intent
+    # anyway (found live: a locked worktree with a dangling symlink crashed
+    # this test with FileNotFoundError, unrelated to any real event-logging gap).
+    exclude = {"tests", ".venv", "venv", "__pycache__", ".git", "examples", ".claude"}
     result = []
     for root, dirs, files in os.walk(service_dir, followlinks=False):
         dirs[:] = [d for d in dirs if d not in exclude]
