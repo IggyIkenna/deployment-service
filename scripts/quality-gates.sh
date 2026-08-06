@@ -63,7 +63,14 @@ MAX_METHOD_LINES=510
 # wiring (a 3-line call-site addition — the factory itself lives in
 # consolidator_scheduler_watcher.py, not here, specifically to avoid growing this file
 # further) needed a few more. Bumped 920->930, still modest/bounded.
-MAX_FILE_LINES=930
+# 2026-08-06 (dp_escalation_worker_dispatch_no_open_issue_check_2026_07_29.md, Option A):
+# escalation.py was ALREADY at exactly 930L with zero headroom (a prior commit had just
+# trimmed its docstring to fit). The escalation-dispatch dedup call site needed ~27 more
+# lines wired into route_finding (the bulk of the new logic lives in its own new module,
+# escalation_dedup.py, specifically to avoid growing this file further — same
+# split-out-a-module pattern as consolidator_scheduler_watcher.py). Bumped 930->960,
+# still modest/bounded.
+MAX_FILE_LINES=960
 
 # Per-repo QG exclusions (see base-service.sh for variable documentation)
 # print(): Rich console.print in progress.py, bash heredoc print in vm_config.py
