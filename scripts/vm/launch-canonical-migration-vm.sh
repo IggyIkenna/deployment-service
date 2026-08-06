@@ -2079,7 +2079,19 @@ _launch() {
         # up + deleted" format every 250 objects, ported unchanged from the GMX template -- reuses
         # the identical regex. Much larger population (~25-27k vs GMX's ~90), but same-zone GCS
         # round-trip latency per object keeps each 250-object gap well under the stall timeout.
+        #
+        # STALL_TIMEOUT_SEC=7200 override (root-caused 2026-08-06): in full mode,
+        # --skip-discovery-verified-empty is ALWAYS set (GCS objects confirmed 0), so the
+        # object-deletion loop NEVER runs and the STALL_PROGRESS_REGEX above NEVER fires.
+        # The only remaining work is _purge_manifest_rows(): a single 2.41 GiB / 75 M-row
+        # whole-index download+filter+serialize+upload+CAS that takes 30-60 min with NO
+        # intermediate log output. In progress-marker mode (STALL_PROGRESS_REGEX set),
+        # vm-exec-with-gcs-tee.sh resets the stall timer ONLY on a regex match -- byte-growth
+        # (PIPELINE_HEARTBEAT) does NOT reset it. Without this override the default 1800s
+        # threshold fires ~halfway through the manifest CAS and kills the VM. 7200s (2h) is
+        # conservative headroom for the full operation to complete before the watchdog triggers.
         md="${md},STALL_PROGRESS_REGEX=object\(s\) backed up \+ deleted"
+        md="${md},STALL_TIMEOUT_SEC=7200"
     elif [[ "$cat" == "defi-lst-rates-fold" ]]; then
         # fold_lst_rates_migrated_markers_2026_07_25.py logs "%d/%d processed in %ds -- %s" every 50
         # markers over the tool's own fixed 346-marker population -- trivially fast.
