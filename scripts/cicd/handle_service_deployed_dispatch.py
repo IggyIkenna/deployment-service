@@ -54,9 +54,20 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Final
 
-from deployment_service.auto_deploy_allowlist import resolve_deploy_targets
+# Import auto_deploy_allowlist.py directly by its containing directory rather than
+# `from deployment_service.auto_deploy_allowlist import ...` — the latter would first
+# execute `deployment_service/__init__.py`, which pulls in the package's full heavy
+# dependency tree (unified-api-contracts, unified-trading-library, ...). Those aren't
+# installed in this workflow's plain `ubuntu-latest` runner (no GAR-authenticated
+# Python index configured here — this listener intentionally stays a standalone,
+# dependency-free script, not a full quality-gates.sh checkout). auto_deploy_allowlist
+# itself has zero external imports, so adding its directory to sys.path and importing
+# it as a bare top-level module never touches deployment_service/__init__.py at all.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "deployment_service"))
+from auto_deploy_allowlist import resolve_deploy_targets
 
 # Pure semver, no branch suffix — see module docstring gate 2.
 _PROD_VERSION_RE: Final[re.Pattern[str]] = re.compile(r"^\d+\.\d+\.\d+$")

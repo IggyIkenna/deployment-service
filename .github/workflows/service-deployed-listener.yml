@@ -74,9 +74,6 @@ jobs:
           fi
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Install deployment_service package (editable, for the allowlist import)
-        run: pip install --quiet -e .
-
       - name: Handle service-deployed dispatch
         env:
           SERVICE_NAME: ${{ github.event.client_payload.service_name }}
