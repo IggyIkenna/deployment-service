@@ -1341,6 +1341,33 @@ if [[ "$VM_TASK" == "canonical-migration" ]]; then
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "pipeline-e2e-check" ]]; then
+  # Runs the pipeline_e2e_check.py driver (unified_trading_library.pipeline_e2e_check)
+  # on its OWN VM instead of inline on the shared AO orchestrator host — the driver
+  # itself (not just the data VMs it launches) was observed ballooning to 15-22GB
+  # RSS and getting OOM-killed by the host's resource-watchdog, competing with every
+  # other AO slot for the host's fixed memory pool
+  # (issues/pipeline_e2e_check_driver_shared_host_oom_2026_08_06.md). Structurally
+  # identical to the canonical-migration branch above (VM_MIGRATION_CMD-driven,
+  # VM_SERVICE -> workspace dir via the same SERVICE_TARBALLS/TARBALL_DIRS mapping,
+  # never a second hand-rolled service->dir map) — deployment-service is always
+  # installed (NEEDED_TARBALLS above), so the driver's own subprocess calls to
+  # deployment-service/scripts/vm/launch-*.sh resolve without any extra tarball.
+  VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
+  if [[ -n "$VM_MIGRATION_CMD" ]]; then
+    FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
+    _E2E_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
+    _E2E_DIR="${TARBALL_DIRS[$_E2E_TARBALL]:-}"
+    if [[ -z "$_E2E_DIR" ]]; then
+      log "ERROR: pipeline-e2e-check task has no SERVICE_TARBALLS/TARBALL_DIRS entry for VM_SERVICE=$VM_SERVICE"
+    else
+      cd "$WORKSPACE/$_E2E_DIR" || { log "ERROR: $WORKSPACE/$_E2E_DIR missing (VM_SERVICE=$VM_SERVICE)"; exit 1; }
+      _launch_with_tee "$FULL_CMD" "$LOGS/pipeline-e2e-check.log"
+    fi
+  else
+    log "ERROR: pipeline-e2e-check task without VM_MIGRATION_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "sports-v9-migration" ]]; then
   # E4 (sports_manifest_canonicalisation_2026_06_01.md) — year-sharded sports
   # v9 migration. launch-sports-v9-migration-vm.sh sets VM_TASK=sports-v9-migration
