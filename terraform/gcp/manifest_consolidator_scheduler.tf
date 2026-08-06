@@ -202,6 +202,28 @@ locals {
     "market-data-cefi"   = "1200"
   }
 
+  # Stall-alert threshold (CONSOLIDATOR_STALL_ALERT_CYCLES). Code default (10
+  # consecutive no-op cron ticks, see unified_trading_library/manifest_consolidator.py)
+  # is calibrated against the DEFAULT 300s lock TTL — but every bucket above has its
+  # OWN longer TTL because its merge legitimately runs well past 300s. Confirmed
+  # 2026-08-05 (defi_manifest_consolidator_stale_lock_silent_stall_2026_08_05.md):
+  # market-data-defi's merges (18-30 min observed) trip the 10-cycle threshold within
+  # ~10 minutes on EVERY SINGLE merge — a false SILENT STALL page every cycle, not a
+  # genuine stuck lock (the lock/TTL mechanism itself was working correctly the whole
+  # time). instruments-sports (6-9 min real cycles) and market-data-cefi (7.2-8.5 min
+  # real cycles) have the SAME structural exposure even though their shorter observed
+  # durations haven't yet been seen tripping it. Set to TTL_seconds/60 (one full TTL
+  # window's worth of cron ticks) for sports/cefi — matches the "TTL > timeout_seconds"
+  # structural-guarantee philosophy above (a lock that's still fresh for a full TTL
+  # window can only be a still-legitimately-running execution). defi gets extra
+  # headroom (90, ~1.3x its 70-cycle TTL-window baseline) since its corpus keeps
+  # growing and merge duration trends upward.
+  manifest_consolidator_stall_alert_cycles = {
+    "market-data-defi"   = "90"
+    "instruments-sports" = "40"
+    "market-data-cefi"   = "20"
+  }
+
   # Cadence reduction (manifest_consolidator_cadence_cost_audit_2026_07_20.md, operator
   # RULED 2026-07-29 "proceed"). Root problem: cost tracks INVOCATION COUNT, not data
   # volume (a no-op */1 tick costs ~the same as a real merge, ~$180/day across 18 jobs
@@ -334,6 +356,9 @@ module "manifest_consolidator_job" {
     } : {},
     contains(keys(local.manifest_consolidator_lock_ttl_seconds), each.key) ? {
       CONSOLIDATOR_LOCK_TTL_SECONDS = local.manifest_consolidator_lock_ttl_seconds[each.key]
+    } : {},
+    contains(keys(local.manifest_consolidator_stall_alert_cycles), each.key) ? {
+      CONSOLIDATOR_STALL_ALERT_CYCLES = local.manifest_consolidator_stall_alert_cycles[each.key]
     } : {},
   )
 

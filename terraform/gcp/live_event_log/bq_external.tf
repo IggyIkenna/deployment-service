@@ -5,7 +5,7 @@
 #
 # Cost guardrail: external table queries scan ALL files in the prefix.
 # Use partition filters where possible.
-# Source format: PARQUET (autodetect schema).
+# Source format: NEWLINE_DELIMITED_JSON (Pub/Sub Cloud Storage subscription writes JSON; flat layout — no Hive partitioning).
 # Warm GCS layout: live-events/warm/{asset_group}/{data_type}/
 
 resource "google_bigquery_dataset" "live_events" {
@@ -40,13 +40,9 @@ resource "google_bigquery_table" "persist_all_book_depth_bands" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/book_depth_bands/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/book_depth_bands/"
-    }
   }
 
   labels = {
@@ -69,13 +65,9 @@ resource "google_bigquery_table" "persist_all_candle" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/candle/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/candle/"
-    }
   }
 
   labels = {
@@ -98,13 +90,9 @@ resource "google_bigquery_table" "persist_all_cme_gap" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/cme_gap/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/cme_gap/"
-    }
   }
 
   labels = {
@@ -127,13 +115,9 @@ resource "google_bigquery_table" "persist_all_composite_sr" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/composite_sr/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/composite_sr/"
-    }
   }
 
   labels = {
@@ -156,13 +140,9 @@ resource "google_bigquery_table" "persist_all_cross_asset_correlation" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/cross_asset_correlation/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/cross_asset_correlation/"
-    }
   }
 
   labels = {
@@ -185,13 +165,9 @@ resource "google_bigquery_table" "persist_all_cross_venue_spreads" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/cross_venue_spreads/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/cross_venue_spreads/"
-    }
   }
 
   labels = {
@@ -214,13 +190,9 @@ resource "google_bigquery_table" "persist_all_economic_events" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/economic_events/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/economic_events/"
-    }
   }
 
   labels = {
@@ -243,13 +215,9 @@ resource "google_bigquery_table" "persist_all_execution_fills" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_fills/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_fills/"
-    }
   }
 
   labels = {
@@ -272,13 +240,9 @@ resource "google_bigquery_table" "persist_all_execution_pnl" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_pnl/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_pnl/"
-    }
   }
 
   labels = {
@@ -301,13 +265,9 @@ resource "google_bigquery_table" "persist_all_execution_positions" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_positions/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_positions/"
-    }
   }
 
   labels = {
@@ -330,13 +290,9 @@ resource "google_bigquery_table" "persist_all_flow_interaction" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/flow_interaction/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/flow_interaction/"
-    }
   }
 
   labels = {
@@ -359,13 +315,9 @@ resource "google_bigquery_table" "persist_all_futures_basis" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/futures_basis/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/futures_basis/"
-    }
   }
 
   labels = {
@@ -388,13 +340,9 @@ resource "google_bigquery_table" "persist_all_futures_term_structure" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/futures_term_structure/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/futures_term_structure/"
-    }
   }
 
   labels = {
@@ -417,13 +365,9 @@ resource "google_bigquery_table" "persist_all_liquidation_clusters" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/liquidation_clusters/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/liquidation_clusters/"
-    }
   }
 
   labels = {
@@ -446,13 +390,9 @@ resource "google_bigquery_table" "persist_all_liquidity_walls" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/liquidity_walls/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/liquidity_walls/"
-    }
   }
 
   labels = {
@@ -475,13 +415,9 @@ resource "google_bigquery_table" "persist_all_microstructure" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/microstructure/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/microstructure/"
-    }
   }
 
   labels = {
@@ -504,13 +440,9 @@ resource "google_bigquery_table" "persist_all_moving_averages" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/moving_averages/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/moving_averages/"
-    }
   }
 
   labels = {
@@ -533,13 +465,9 @@ resource "google_bigquery_table" "persist_all_options_iv" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/options_iv/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/options_iv/"
-    }
   }
 
   labels = {
@@ -562,13 +490,9 @@ resource "google_bigquery_table" "persist_all_options_term_structure" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/options_term_structure/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/options_term_structure/"
-    }
   }
 
   labels = {
@@ -591,13 +515,9 @@ resource "google_bigquery_table" "persist_all_paper_ledger" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/paper_ledger/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/paper_ledger/"
-    }
   }
 
   labels = {
@@ -620,13 +540,9 @@ resource "google_bigquery_table" "persist_all_per_strategy_signal" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/per_strategy_signal/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/per_strategy_signal/"
-    }
   }
 
   labels = {
@@ -649,13 +565,9 @@ resource "google_bigquery_table" "persist_all_realized_implied_vol" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/realized_implied_vol/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/realized_implied_vol/"
-    }
   }
 
   labels = {
@@ -678,13 +590,9 @@ resource "google_bigquery_table" "persist_all_regime_detection" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/regime_detection/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/regime_detection/"
-    }
   }
 
   labels = {
@@ -707,13 +615,9 @@ resource "google_bigquery_table" "persist_all_technical_indicators" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/technical_indicators/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/technical_indicators/"
-    }
   }
 
   labels = {
@@ -736,13 +640,9 @@ resource "google_bigquery_table" "persist_all_tf_momentum_alignment" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_momentum_alignment/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_momentum_alignment/"
-    }
   }
 
   labels = {
@@ -765,13 +665,9 @@ resource "google_bigquery_table" "persist_all_tf_structure_context" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_structure_context/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_structure_context/"
-    }
   }
 
   labels = {
@@ -794,13 +690,9 @@ resource "google_bigquery_table" "persist_all_tf_vol_compression" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_vol_compression/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_vol_compression/"
-    }
   }
 
   labels = {
@@ -823,13 +715,9 @@ resource "google_bigquery_table" "persist_all_time_features" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/all/time_features/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/time_features/"
-    }
   }
 
   labels = {
@@ -852,13 +740,9 @@ resource "google_bigquery_table" "persist_cefi_book_snapshot_5" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/cefi/book_snapshot_5/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/book_snapshot_5/"
-    }
   }
 
   labels = {
@@ -881,13 +765,9 @@ resource "google_bigquery_table" "persist_cefi_derivative_ticker" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/cefi/derivative_ticker/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/derivative_ticker/"
-    }
   }
 
   labels = {
@@ -910,13 +790,9 @@ resource "google_bigquery_table" "persist_cefi_liquidations" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/cefi/liquidations/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/liquidations/"
-    }
   }
 
   labels = {
@@ -939,13 +815,9 @@ resource "google_bigquery_table" "persist_cefi_trades" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/cefi/trades/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/trades/"
-    }
   }
 
   labels = {
@@ -968,13 +840,9 @@ resource "google_bigquery_table" "persist_commodity_storage_alpha" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/commodity/storage_alpha/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/commodity/storage_alpha/"
-    }
   }
 
   labels = {
@@ -997,13 +865,9 @@ resource "google_bigquery_table" "persist_commodity_weather_delta" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/commodity/weather_delta/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/commodity/weather_delta/"
-    }
   }
 
   labels = {
@@ -1026,13 +890,9 @@ resource "google_bigquery_table" "persist_defi_arbitrage_price_dispersion" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/arbitrage_price_dispersion/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/arbitrage_price_dispersion/"
-    }
   }
 
   labels = {
@@ -1055,13 +915,9 @@ resource "google_bigquery_table" "persist_defi_book_snapshot_5" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/book_snapshot_5/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/book_snapshot_5/"
-    }
   }
 
   labels = {
@@ -1084,13 +940,9 @@ resource "google_bigquery_table" "persist_defi_dex_pools" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/dex_pools/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/dex_pools/"
-    }
   }
 
   labels = {
@@ -1113,13 +965,9 @@ resource "google_bigquery_table" "persist_defi_dex_swaps" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/dex_swaps/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/dex_swaps/"
-    }
   }
 
   labels = {
@@ -1142,13 +990,9 @@ resource "google_bigquery_table" "persist_defi_lending_indices" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/lending_indices/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lending_indices/"
-    }
   }
 
   labels = {
@@ -1171,13 +1015,9 @@ resource "google_bigquery_table" "persist_defi_liquidations" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/liquidations/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/liquidations/"
-    }
   }
 
   labels = {
@@ -1200,13 +1040,9 @@ resource "google_bigquery_table" "persist_defi_lst_native_rates" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_native_rates/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_native_rates/"
-    }
   }
 
   labels = {
@@ -1229,13 +1065,9 @@ resource "google_bigquery_table" "persist_defi_lst_rates" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_rates/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_rates/"
-    }
   }
 
   labels = {
@@ -1258,13 +1090,9 @@ resource "google_bigquery_table" "persist_defi_lst_yields" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_yields/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_yields/"
-    }
   }
 
   labels = {
@@ -1287,13 +1115,9 @@ resource "google_bigquery_table" "persist_defi_trades" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/defi/trades/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/trades/"
-    }
   }
 
   labels = {
@@ -1316,13 +1140,9 @@ resource "google_bigquery_table" "persist_prediction_book_snapshot" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/prediction/book_snapshot/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/prediction/book_snapshot/"
-    }
   }
 
   labels = {
@@ -1345,13 +1165,9 @@ resource "google_bigquery_table" "persist_prediction_book_snapshot_5" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/prediction/book_snapshot_5/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/prediction/book_snapshot_5/"
-    }
   }
 
   labels = {
@@ -1374,13 +1190,9 @@ resource "google_bigquery_table" "persist_prediction_trades" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/prediction/trades/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/prediction/trades/"
-    }
   }
 
   labels = {
@@ -1403,13 +1215,9 @@ resource "google_bigquery_table" "persist_sports_derived_features" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/sports/derived_features/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/derived_features/"
-    }
   }
 
   labels = {
@@ -1432,13 +1240,9 @@ resource "google_bigquery_table" "persist_sports_fixture_features" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/sports/fixture_features/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/fixture_features/"
-    }
   }
 
   labels = {
@@ -1461,13 +1265,9 @@ resource "google_bigquery_table" "persist_sports_odds_features" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/sports/odds_features/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/odds_features/"
-    }
   }
 
   labels = {
@@ -1490,13 +1290,9 @@ resource "google_bigquery_table" "persist_sports_trades" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/sports/trades/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/trades/"
-    }
   }
 
   labels = {
@@ -1519,13 +1315,9 @@ resource "google_bigquery_table" "persist_tradfi_trades" {
 
   external_data_configuration {
     autodetect    = true
-    source_format = "PARQUET"
+    source_format = "NEWLINE_DELIMITED_JSON"
     source_uris   = ["gs://${var.warm_gcs_bucket}/live-events/warm/tradfi/trades/*"]
 
-    hive_partitioning_options {
-      mode = "AUTO"
-      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/tradfi/trades/"
-    }
   }
 
   labels = {
@@ -1537,4 +1329,3 @@ resource "google_bigquery_table" "persist_tradfi_trades" {
 
   depends_on = [google_bigquery_dataset.live_events]
 }
-

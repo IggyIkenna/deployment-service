@@ -2241,6 +2241,21 @@ elif [[ "$VM_TASK" == "strategy-orphan-sweep" ]]; then
   else
     log "ERROR: strategy-orphan-sweep task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "mdps-cefi-manifest-merge" ]]; then
+  # One-off additive MDPS manifest reconciliation for the cefi trades gap-fill
+  # campaign — launch-mdps-cefi-manifest-merge.sh prepares the correct
+  # merge_mdps_cefi_manifest.py invocation in VM_BACKFILL_CMD.
+  # Target script lives in unified-trading-library's utl workspace dir.
+  # Added 2026-08-05 (cefi_satellite_ao_dispatch_batch5 todo 3).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/utl" || { log "ERROR: $WORKSPACE/utl missing — unified-trading-library tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/mdps-cefi-manifest-merge.log"
+  else
+    log "ERROR: mdps-cefi-manifest-merge task without VM_BACKFILL_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "feature-orphan-backfill" ]]; then
   # features-service class-E orphan record_captured backfill —
   # launch-feature-orphan-backfill-vm.sh prepares the correct
@@ -2312,6 +2327,23 @@ elif [[ "$VM_TASK" == "backfill-defi-dex-swaps" ]]; then
     _launch_with_tee "$FULL_CMD" "$LOGS/backfill-defi-dex-swaps.log"
   else
     log "ERROR: backfill-defi-dex-swaps task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "backfill-defi-legacy-datatype-fold" ]]; then
+  # Legacy dex_pools/dex_swaps/rate_indices data_type fold —
+  # launch-backfill-defi-legacy-datatype-fold-vm.sh prepares the correct
+  # fold_legacy_dex_pools_swaps_rate_indices_2026_08_04.py invocation in
+  # VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch shape as its
+  # backfill-defi-dex-swaps sibling above — own VM_TASK branch from day one
+  # per the no-dispatch-branch recurring-bug precedent). Target script lives
+  # in market-tick-data-service's mtds workspace dir.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/mtds" || { log "ERROR: $WORKSPACE/mtds missing — market-tick-data-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/backfill-defi-legacy-datatype-fold.log"
+  else
+    log "ERROR: backfill-defi-legacy-datatype-fold task without VM_BACKFILL_CMD metadata"
   fi
 elif [[ "$VM_TASK" == "sports-derived-features-census" ]]; then
   # Sports derived_features post-floor residue census —

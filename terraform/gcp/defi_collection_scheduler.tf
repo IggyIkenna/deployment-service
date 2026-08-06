@@ -138,11 +138,23 @@ locals {
       description = "DeFi collect-risk-params — per-market reserve config (ltv/liquidation_threshold/liquidation_bonus/reserve_factor/emode_category_id) via Aave/Spark/Compound-V3 subgraph + IS-catalogue fallback (Morpho/Fluid/Solana)."
     }
     "lst-rates" = {
-      schedule    = "0 1 * * *"
-      cpu         = "1"
-      memory      = "2Gi"
+      schedule = "0 1 * * *"
+      cpu      = "1"
+      # 2Gi -> 4Gi (defi_mtds_lst_rates_cloud_run_job_oom_2026_08_04.md): every scheduled run
+      # 2026-08-02 through 2026-08-05 OOM-killed ("The configured memory limit was reached")
+      # inside ManifestFreshnessCache.bulk_load()'s background warmup thread
+      # (_gas_fee_helpers.bounded_freshness_warmup) racing the handler's own EVM/Solana RPC
+      # fetch work against the now ~42M-row defi availability index — RSS measured at ~2040MiB
+      # (at the 2Gi cgroup ceiling) moments before each OOM-kill. An ad-hoc `gcloud run jobs
+      # update --memory=4Gi` + manual execution (ikenna@odum-research.com, 2026-08-05T16:14 UTC,
+      # execution uts-prod-mtds-collect-lst-rates-b5f4t) already verified this resolves it live
+      # (completed successfully in 2m53s, all 15 LST venues written) — this bump syncs the IaC
+      # source of truth so the next `terraform apply` doesn't drift-revert that live fix back to
+      # the OOM-ing 2Gi. Matches dex-pools/dex-swaps/evm-defi's existing 4Gi for the same class
+      # of freshness/manifest-heavy defi collection job.
+      memory      = "4Gi"
       timeout     = 1200
-      description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block."
+      description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block. Bumped 2Gi->4Gi 2026-08-05: OOM-killed (signal 9) on every run since 2026-08-02 at ~70% of 2Gi (rss~2040MiB) -- see plans/active/issues/defi_hyperliquid_residual_manifest_rows_2026_08_04.md's BLAZESTAKE finding (this job also covers the Solana LST leg, incl. bSOL/BLAZESTAKE)."
     }
     "vault-share-price" = {
       schedule    = "10 1 * * *"

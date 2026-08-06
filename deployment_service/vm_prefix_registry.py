@@ -324,6 +324,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # MDPS sharded backfill (per asset_group)
     # ------------------------------------------------------------------
     "mdps-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # One-off MDPS cefi manifest merge (cefi_satellite_ao_dispatch_batch5 todo 3).
+    # Runs merge_manifest_from_canonical_paths additively on processed_candles/by_date.
+    # Heartbeat-only — writes directly to the manifest index, not per-VM shards.
+    "mdps-cefi-manifest-merge-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -781,6 +785,19 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "backfill-defi-dex-swaps-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # Legacy dex_pools/dex_swaps/rate_indices data_type fold
+    # (launch-backfill-defi-legacy-datatype-fold-vm.sh) — runs
+    # market-tick-data-service/scripts/fold_legacy_dex_pools_swaps_rate_indices_2026_08_04.py
+    # --apply. Registers a per-VM manifest shard (ManifestWriter(per_vm_shards=True)),
+    # so bucket=the defi tick bucket (NOT None/heartbeat-only) — the standing manifest
+    # consolidator must pick up this VM's per_vm shard.
+    # SSOT: unified-trading-pm/plans/active/issues/
+    #   defi_legacy_data_type_names_manifest_migration_scope_2026_08_04.md
+    # ------------------------------------------------------------------
+    "backfill-defi-legacy-datatype-fold-": VmPrefixSpec(
+        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
     # pre-audit doc (drift-axis histogram + manifest shape + phantom
@@ -1232,4 +1249,23 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # not by resurrecting per-epic VMs.
     # ------------------------------------------------------------------
     "agent-orch-planning-vm-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # ------------------------------------------------------------------
+    # Sports expected-universe v2 backfill (launch-expected-universe-v2-sports-vm.sh).
+    # 71 TERMINATED VMs as of 2026-08-05 from the 2026-08-04 launch wave — prefix
+    # was missing so the watchdog classified them all as keep_not_ephemeral.
+    # bucket=None (heartbeat-only — no per-VM manifest shards).
+    # ------------------------------------------------------------------
+    "expected-universe-v2-sports-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # Datapoint validation VMs (validation pipeline, per-AG).
+    # bucket=None (heartbeat-only).
+    # Registered 2026-08-05 (missed-prefix audit from reapable-VM backlog).
+    # ------------------------------------------------------------------
+    "datapoint-validation-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # CeFi onchain forward daily cron VMs.
+    # bucket=None (heartbeat-only).
+    # Registered 2026-08-05 (missed-prefix audit from zombie-VM backlog).
+    # ------------------------------------------------------------------
+    "cefi-onchain-fwd-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
 }

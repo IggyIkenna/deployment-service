@@ -416,7 +416,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|prediction|sports-mdps|sports-instruments|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-kamino-lending-retire|defi-blazestake-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -845,7 +845,91 @@ _gas_fees_legacy_purge_cmd() {
         verify) mode_flag=" --verify-only" ;;
         *) mode_flag=" --dry-run" ;;
     esac
-    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gas_fees_legacy_venue_prefixes_2026_08_04.py --project-id ${PROJECT}${mode_flag}"
+    # --skip-discovery-verified-empty (2026-08-05): discover_objects()'s per-day match_glob scan
+    # stalled/died 5 consecutive times right near the tail of the 1881-day list, on both SPOT and
+    # on-demand VMs. A direct 10-venue-wide match_glob check independently confirmed 0 objects
+    # remain across ALL days/venues before this was added -- only correct for `full` mode, and only
+    # while that empty-state holds (re-verify fresh with the same direct check before any other use;
+    # remove this flag if the target ever legitimately has objects again, e.g. a future retirement).
+    local skip_flag=""
+    [[ "$MODE" == "full" ]] && skip_flag=" --skip-discovery-verified-empty"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gas_fees_legacy_venue_prefixes_2026_08_04.py --project-id ${PROJECT}${mode_flag}${skip_flag}"
+}
+
+# defi-composite-venue-trace (2026-08-05) -- read-only diagnostic for the 22
+# non-canonical composite PROTOCOL-CHAIN venues with manifest rows but no backing GCS
+# objects (defi_underscored_multichain_composite_venue_fold_2026_08_04.md). $MODE is
+# ignored -- this script has no --apply path at all (read-only), always the same
+# command regardless of dry/full. Needs MANIFEST_PER_VM_SHARDS unset (read-only, no
+# writer instantiated) and no consolidator-drain gate (nothing written).
+_composite_venue_trace_cmd() {
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/trace_composite_venue_provenance_2026_08_05.py"
+}
+
+# defi-dex-pools-retire (2026-08-05) -- manifest-only retirement of the legacy
+# `dex_pools` captured rows for ORCA/RAYDIUM (content-verified redundant with an
+# already-existing canonical dex_pool_state twin, see the script's own docstring).
+# $MODE IS honored: dry (default) -> classification only; full -> --apply (snapshot +
+# write + round-trip verify, embedded by the script itself, not this builder). Never a
+# GCS object delete (manifest-only, additive snapshot + status-flip), but it DOES
+# rewrite the canonical _index -- pause the manifest consolidator cron first
+# (mirrors defi-gas-fees-legacy-purge's own precondition, done by the operator/session
+# launching this, not gated in-script here since this script has no consolidator-aware
+# precondition check of its own).
+_dex_pools_retire_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/retire_dex_pools_legacy_captured_rows_2026_08_05.py${apply_flag}"
+}
+
+# defi-kamino-lending-retire (2026-08-05) -- retires the legacy venue=KAMINO_LENDING
+# captured manifest rows now that every one has a content-verified canonical
+# KAMINO-SOLANA twin (relabel_kamino_lending_venue_2026_08_05.py, an already-run,
+# additive-only companion script). Tiny scope (565 rows across 5 known days) but still a
+# full canonical-index download+rewrite+upload, hence a VM launch per the heavy-I/O rule
+# rather than a local run. $MODE IS honored: dry -> classification count only; full ->
+# --apply (snapshot + write, embedded by the script itself). Manifest-only rewrite --
+# same consolidator-pause precondition as defi-dex-pools-retire.
+_kamino_lending_retire_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/retire_kamino_lending_legacy_venue_2026_08_05.py${apply_flag}"
+}
+
+# defi-blazestake-retire (2026-08-06) -- relabels the legacy venue=BLAZESTAKE
+# lst_rates corpus (1,405 objects across 1,318 days, 2022-12-14..2026-08-04) to the
+# canonical SOLBLAZE-SOLANA venue and retires the legacy captured manifest rows, in one
+# script (Phase A: per-object copy+relabel + additive manifest registration; Phase B:
+# canonical-index retirement -- unlike the KAMINO_LENDING relabel, which shipped as two
+# separate scripts because the first was additive-only, this one does both so nothing is
+# left half-done). $MODE IS honored: dry -> Phase A dry-run listing only; full -> --apply
+# (relabels + registers + retires, embedded by the script itself). Manifest-only rewrite
+# for Phase B (never a GCS object delete for either phase) -- same consolidator-pause
+# precondition as defi-dex-pools-retire/defi-kamino-lending-retire. 1,318 sequential
+# per-day list_blobs calls in Phase A make this meaningfully slower than the KAMINO
+# scripts (~20-30 min observed for a dry-run alone) -- budget accordingly.
+_blazestake_relabel_retire_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/relabel_retire_blazestake_venue_2026_08_06.py${apply_flag}"
+}
+
+# defi-pool-casing-fold (2026-08-05) -- classifies + retires the legacy
+# instrument_type=POOL cells (~1.9M rows, dex_pool_swaps/dex_swaps) that already have a
+# content-verified canonical `pool`-cased twin; the (likely much smaller) no-twin
+# population is reported but NOT touched by default (needs a separate, explicit
+# --fold-no-twin-cells re-run once someone reviews the no-twin sample). $MODE IS
+# honored: dry -> classification only; full -> --apply (retire twin-exists rows only).
+# Same manifest-rewrite profile as defi-dex-pools-retire -- pause the consolidator
+# cron first. Bumps MACHINE_TYPE (e2-standard-8 -> e2-standard-16) by default since
+# Pass 1 holds two in-memory key sets (legacy + canonical cells) that could be large
+# for this data_type/row-count combination -- not yet measured at full scale, so
+# erring toward headroom rather than re-discovering an OOM on a 1.9M-row corpus. An
+# explicit caller-supplied MACHINE_TYPE always wins (never overridden here).
+_pool_casing_fold_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/fold_pool_instrument_type_casing_2026_08_05.py${apply_flag}"
 }
 
 # DeFi lst_rates FLAGGED-marker fold (2026-07-25) -- in-region runner for
@@ -1082,6 +1166,20 @@ _candle_apply_cmd() {
     # `\$(...)` stays LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
     # launcher locals expand host-side. No commas anywhere in the emitted string.
     printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && ${enum_step} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
+# Build the cefi MDPS manifest merge command (2026-08-05,
+# cefi_satellite_ao_dispatch_batch5_2026_08_02.md todo 3) — ADDITIVE-ONLY manifest
+# reconciliation for the cefi trades gap-fill campaign. Runs
+# unified-trading-library/scripts/merge_mdps_cefi_manifest.py which wraps
+# merge_manifest_from_canonical_paths with bucket=market-data-tick-cefi-prd,
+# service_name=market-data-processing-service, prefix=processed_candles/by_date.
+# The tool is ADDITIVE ONLY (discovered - existing → existing + new_only) —
+# every co-located raw_tick_data row survives untouched, re-running is a no-op.
+# $MODE is deliberately IGNORED — the tool has NO --apply/--dry-run flag;
+# its idempotent design is its own write-safety.
+_cefi_mdps_manifest_merge_cmd() {
+    printf '%s' "cd ${VM_WORKSPACE}/utl && python -u scripts/merge_mdps_cefi_manifest.py"
 }
 
 # Build the candle-orphan-sweep command (2026-07-27, todo 1 of
@@ -1444,6 +1542,12 @@ _launch() {
     if [[ "$cat" == "cefi-content-apply" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
         MACHINE_TYPE="e2-standard-16"
     fi
+    # defi-pool-casing-fold default MACHINE_TYPE bump (2026-08-05) -- see
+    # _pool_casing_fold_cmd's comment. Untested at full 1.9M-row scale; erring toward
+    # headroom for Pass 1's in-memory key-set classification.
+    if [[ "$cat" == "defi-pool-casing-fold" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
+        MACHINE_TYPE="e2-standard-16"
+    fi
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
     # BUG FOUND 2026-07-22 (candle-apply adversarial self-test, SHARD_OF=3 preview): "<ag>-candle-apply"
@@ -1614,6 +1718,17 @@ _launch() {
             return 1
         fi
         cmd="$(_candle_orphan_sweep_cmd "${cat%-candle-orphan-sweep}" "$vm_name")"
+    elif [[ "$cat" == "cefi-mdps-manifest-merge" ]]; then
+        # MDPS manifest merge for cefi trades gap-fill (2026-08-05,
+        # cefi_satellite_ao_dispatch_batch5_2026_08_02.md todo 3) — self-contained
+        # `cd ... && python ...` single invocation. $MODE is deliberately IGNORED
+        # (the tool is ADDITIVE ONLY with no --apply/--dry-run flag — its idempotent
+        # design is its own write-safety; re-running is a no-op).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for cefi-mdps-manifest-merge" >&2
+            return 1
+        fi
+        cmd="$(_cefi_mdps_manifest_merge_cmd)"
     elif [[ "$cat" == "defi-marker-cleanup" ]]; then
         # DRY-RUN ONLY, HARD -- $MODE is deliberately IGNORED and forced to "dry" (mirrors
         # *-candle-census): this category has NO reachable --apply code path through this launcher,
@@ -1648,6 +1763,58 @@ _launch() {
         # so no consolidator-drain gate is required (unlike defi-gmx-purge/cefi-bybit-spot-purge).
         cmd="$(_lst_rates_fold_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "defi-composite-venue-trace" ]]; then
+        # $MODE is ignored -- read-only diagnostic, no --apply path at all. See
+        # _composite_venue_trace_cmd's comment.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-composite-venue-trace." >&2
+            return 1
+        fi
+        cmd="$(_composite_venue_trace_cmd)"
+    elif [[ "$cat" == "defi-dex-pools-retire" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Manifest-only rewrite
+        # (never a GCS object delete) -- see _dex_pools_retire_cmd's comment for the
+        # consolidator-pause precondition (not script-enforced, unlike defi-gmx-purge).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-dex-pools-retire -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_dex_pools_retire_cmd)"
+    elif [[ "$cat" == "defi-kamino-lending-retire" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Manifest-only rewrite
+        # (never a GCS object delete) -- see _kamino_lending_retire_cmd's comment for the
+        # consolidator-pause precondition (not script-enforced, unlike defi-gmx-purge).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-kamino-lending-retire -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_kamino_lending_retire_cmd)"
+    elif [[ "$cat" == "defi-blazestake-retire" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Manifest-only rewrite
+        # (never a GCS object delete) -- see _blazestake_relabel_retire_cmd's comment for the
+        # consolidator-pause precondition (not script-enforced, unlike defi-gmx-purge).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-blazestake-retire -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_blazestake_relabel_retire_cmd)"
+    elif [[ "$cat" == "defi-pool-casing-fold" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder (retires twin-exists rows).
+        # --fold-no-twin-cells is a separate, explicit, non-default follow-up pass over the (verified-safe,
+        # see plans/active/defi_distinct_values_zero_noncanonical_dispatch_2026_08_04.md row 2) no-twin
+        # population -- allow-listed to EXACTLY that one flag (not a blind MIGRATION_EXTRA_ARGS append) so
+        # a fat-fingered/unrelated extra-args value can never land mid-command. Manifest-only rewrite --
+        # same consolidator-pause precondition as defi-dex-pools-retire.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" && "${MIGRATION_EXTRA_ARGS}" != "--fold-no-twin-cells" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS for defi-pool-casing-fold only accepts the literal value" >&2
+            echo "       '--fold-no-twin-cells' -- got: ${MIGRATION_EXTRA_ARGS}" >&2
+            return 1
+        fi
+        cmd="$(_pool_casing_fold_cmd)"
+        [[ "${MIGRATION_EXTRA_ARGS:-}" == "--fold-no-twin-cells" ]] && cmd="$cmd --fold-no-twin-cells"
     elif [[ "$cat" == "defi-dex-pool-leaf-purge" ]]; then
         # $MODE IS honored for real -- --apply is embedded by the builder. Plain object-level GCS
         # deletes only (never a manifest write), so no consolidator-drain gate is needed (mirrors
@@ -1744,6 +1911,8 @@ _launch() {
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
+    # cefi-mdps-manifest-merge — normalize to CEFI for dashboards/heartbeat
+    [[ "$cat" == "cefi-mdps-manifest-merge" ]] && _ag="CEFI"
     # *-iah category names are "<ag>-iah" -- strip the suffix to recover the real asset group so
     # dashboards/heartbeat classify these VMs with the rest of that asset group instead of a novel
     # "<AG>-IAH" bucket (same suffix-strip convention as candle-census/candle-apply above).
@@ -1801,12 +1970,11 @@ _launch() {
     # (tradfi-catalogue-canon forked each CANON_SHARDS shard to its OWN `/tmp/canon_shard{i}.log`,
     # only tailed after ALL shards finished) -- FIXED 2026-08-05 (todo 9): _catalogue_canon_cmd()
     # now uses `>(tee ...)` process substitution to fan per-shard progress to stdout in real time,
-    # and the STALL_PROGRESS_REGEX below now covers this category. *-iah/*-iah-purge were also
-    # left unset: their "progress: N/M objects
-    # processed" line is gated `done % 5000 == 0`, but the per-asset_group candidate_count is
-    # unverified per bucket (452,793 IA + 12,582 ML objects split across 5 buckets total) -- an
-    # asset_group with <5000 candidates would NEVER match, which is the worse-than-fallback failure
-    # mode above; filed as todo 10 below rather than guessed at.
+    # and the STALL_PROGRESS_REGEX below now covers this category. *-iah/*-iah-purge were
+    # also fixed (todo 10): "progress: N/M objects processed" was gated `done % 5000 == 0`
+    # but the per-asset_group candidate_count (~2,516-90K/AG) meant smaller buckets might
+    # never match. Fixed by lowering the modulus to `done == 1 or done % 500 == 0` in both
+    # target scripts (instruments-service) + adding STALL_PROGRESS_REGEX below.
     if [[ "$cat" == "tradfi-cme-monolith" ]]; then
         # migrate_cme_monolith_trades_2026_07_26.py::run_migrate logs "day=%s groups=%d stats=%s"
         # UNCONDITIONALLY per day (not gated by a modulus) against a fixed, tiny 30-day worklist.
@@ -1902,6 +2070,20 @@ _launch() {
         # fold_lst_rates_migrated_markers_2026_07_25.py logs "%d/%d processed in %ds -- %s" every 50
         # markers over the tool's own fixed 346-marker population -- trivially fast.
         md="${md},STALL_PROGRESS_REGEX=processed in [0-9]+s"
+    elif [[ "$cat" == *-iah || "$cat" == *-iah-purge ]]; then
+        # Todo 10 (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md): the migrate
+        # (migrate_instrument_availability_hive_2026_08_03.py) and purge
+        # (purge_flat_instrument_availability_hive_2026_08_03.py) scripts both log
+        # "  progress: N/M objects processed" -- formerly gated `done % 5000 == 0`, now lowered
+        # to `done == 1 or done % 500 == 0` (instruments-service) so it fires on the first object
+        # and then every 500 thereafter, guaranteeing progress lines even for small per-AG
+        # populations (prediction's market_lifecycle candidate_count ~2,516/AG, or a post-migrate
+        # purge with very few remaining flat candidates -- both scenarios would previously have
+        # NEVER matched under the 5000-only gate). At the fleet-measured ~8,500 parquets/min
+        # aggregate throughput (same order as *-candle-apply), a 500-object gap is ~3.5s -- >>500x
+        # headroom under STALL_TIMEOUT_SEC=1800s for this category. The `:,` format spec in the
+        # f-string produces comma-separated numbers; the regex below matches that.
+        md="${md},STALL_PROGRESS_REGEX=progress: [0-9,]+/[0-9,]+ objects processed"
     fi
     # TODO(low-severity, adversarial review 2026-07-22): for *-candle-census categories, $MODE is
     # silently ignored by _candle_census_cmd() (always emits --dry-run, no reachable --apply path),
@@ -2085,7 +2267,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-kamino-lending-retire|defi-blazestake-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

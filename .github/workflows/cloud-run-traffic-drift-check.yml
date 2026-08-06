@@ -1,0 +1,107 @@
+name: Cloud Run Traffic Drift Check
+
+# Periodic drift check: for every auto-deployed Cloud Run SERVICE (not job),
+# compares live `status.traffic` against `status.latestReadyRevisionName` and
+# alerts when traffic is pinned to a stale named revision while a newer Ready
+# revision exists. This catches the silent-freeze hazard class documented in
+# cloud_run_traffic_pin_silent_freeze_alert_wiring_2026_08_05.md — a manual
+# `gcloud run services update-traffic --to-revisions=<name>=100` (or the
+# canary-deploy.sh rollback path) leaves the service pinned by name, and every
+# subsequent CI deploy reports SUCCESS while 0% of traffic ever moves.
+#
+# Mirrors the slot_drift_check / ci-status-consolidator cadence pattern.
+# Alert dedup via notify-slack.yml's dedup_key + cooldown_min — pages on
+# transition, not every tick.
+
+on:
+  schedule:
+    # Hourly at :23 — offset from :00/:15/:30/:45 to avoid the thundering herd
+    # with other top-of-quarter-hour crons (ci-status-consolidator is :08).
+    - cron: "23 * * * *"
+  workflow_dispatch:
+    inputs:
+      grace_minutes:
+        description: "Skip alert if the latest-ready revision is newer than this many minutes"
+        type: number
+        required: false
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      has_drift: ${{ steps.drift.outputs.has_drift }}
+      drifted_services: ${{ steps.drift.outputs.drifted_services }}
+    steps:
+      - name: Checkout deployment-service
+        uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        id: gcp_auth
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Run Cloud Run traffic drift check
+        id: drift
+        env:
+          GCP_PROJECT: ${{ vars.GCP_PROJECT_ID || 'central-element-323112' }}
+          REGION: asia-northeast1
+          GRACE_MIN: ${{ github.event.inputs.grace_minutes || 30 }}
+        run: |
+          set -euo pipefail
+
+          # Run the check — always exits 0 here (we don't want a drifted service
+          # to FAIL the job; the downstream notify job handles the alert).
+          python3 scripts/cicd/cloud_run_traffic_drift_check.py \
+            --project "$GCP_PROJECT" \
+            --region "$REGION" \
+            --grace-minutes "$GRACE_MIN" \
+            --json \
+            > /tmp/drift_result.json || true
+
+          # Parse results for the Slack message.
+          DRIFTED=$(python3 -c "
+          import json
+          results = json.load(open('/tmp/drift_result.json'))
+          drifted = [r for r in results if r.get('drifted')]
+          for d in drifted:
+              print(f'• {d[\"service\"]}: PINNED to {d[\"traffic_revision\"]}, latest-ready is {d[\"latest_ready_revision\"]}')
+          ")
+
+          if [ -n "$DRIFTED" ]; then
+            {
+              echo "drifted_services<<EOF"
+              echo "$DRIFTED"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "has_drift=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_drift=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  notify:
+    needs: check
+    if: ${{ needs.check.outputs.has_drift == 'true' }}
+    uses: ./.github/workflows/notify-slack.yml
+    with:
+      severity: CRITICAL
+      workflow_name: "cloud-run-traffic-drift-check"
+      subject_repo: deployment-service
+      message: |
+        🚨 Cloud Run traffic PINNED to a stale revision — `gcloud run deploy` will NOT auto-promote until this is released.
+
+        ${{ needs.check.outputs.drifted_services }}
+
+        Restore: `gcloud run services update-traffic <service> --to-latest --region=asia-northeast1`
+
+        SSOT: cloud_run_traffic_pin_silent_freeze_alert_wiring_2026_08_05.md
+      dedup_key: "cloud-run-traffic-pin:drift"
+      cooldown_min: 240
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_CI_WEBHOOK_URL }}
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}

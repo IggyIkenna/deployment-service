@@ -135,6 +135,8 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "tradfi-phantom-audit": None,  # read-only audit — not a relaunch target
     # ── MDPS sharded backfill (per asset_group) ───────────────────────────
     "mdps-cefi-": "launch-mdps-sharded-backfill.sh",
+    # One-off MDPS cefi manifest merge (cefi_satellite_ao_dispatch_batch5 todo 3)
+    "mdps-cefi-manifest-merge-": "launch-mdps-cefi-manifest-merge.sh",
     "mdps-tradfi-": "launch-mdps-sharded-backfill.sh",
     "mdps-defi-": "launch-mdps-sharded-backfill.sh",
     "mdps-prediction-": "launch-mdps-sharded-backfill.sh",
@@ -274,9 +276,15 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # own day-level checkpoint makes a SPOT preemption relaunch resume from
     # measured progress rather than restart-from-scratch.
     "backfill-defi-dex-swaps-": "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+    # Legacy dex_pools/dex_swaps/rate_indices data_type fold (copy-not-move + per-VM
+    # sharded record_captured) — resume-log-driven, safe to relaunch after preemption.
+    "backfill-defi-legacy-datatype-fold-": "launch-backfill-defi-legacy-datatype-fold-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
+    "expected-universe-v2-sports-": "launch-expected-universe-v2-vm.sh",  # same launcher, sports-specific prefix
+    "datapoint-validation-": None,  # per-AG validation pipeline — no single-VM relaunch target
+    "cefi-onchain-fwd-": None,  # onchain forward daily cron — scheduler-owned, no dedicated launcher
     "blank-reason-recon-": "launch-blank-reason-recon-vm.sh",
     # ── Options-chain / CME-events backfills ──────────────────────────────
     "opt-deribit-": "launch-targeted-options-chain-backfill.sh",

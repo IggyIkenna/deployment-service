@@ -10,11 +10,29 @@ events are due right now. No dispatch, no IO.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict, cast
 
 from .sports_trigger_state import FixtureInfo, as_int
+
+logger = logging.getLogger(__name__)
+
+from unified_api_contracts.sports import get_league as _uac_get_league
+
+
+def _league_has_odds_coverage(league_id: str) -> bool:
+    """Check whether *league_id* has odds_api coverage per the UAC registry.
+
+    Returns ``False`` when the league is not found in the registry at all,
+    or when its ``data_sources`` frozenset does not include ``"odds_api"``.
+    """
+    league_def = _uac_get_league(league_id)
+    if league_def is None:
+        logger.debug("League %s not found in UAC registry — treating as no odds coverage", league_id)
+        return False
+    return "odds_api" in league_def.data_sources
 
 
 class TriggerEvent(TypedDict):  # CORRECT-LOCAL: scheduler-internal event dict, never exported
@@ -88,20 +106,37 @@ def evaluate_pre_match_triggers(
 
             # Fire if we're within tolerance window
             if delta_minutes <= tolerance_minutes:
-                services = trigger.get("services", [])
-                if not isinstance(services, list):
-                    services = []
+                services_raw = trigger.get("services", [])
+                if not isinstance(services_raw, list):
+                    services_raw = []
+                services: list[dict[str, object]] = [s for s in services_raw if isinstance(s, dict)]
 
-                events.append(
-                    TriggerEvent(
-                        trigger_name=name,
-                        fixture_id=fixture_id,
-                        league_id=fixture["league_id"],
-                        kickoff_utc=fixture["kickoff_utc"],
-                        fire_at_utc=fire_at.isoformat(),
-                        services=[s for s in services if isinstance(s, dict)],
+                # ---- league odds-coverage filter ----
+                # sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md
+                # identified that the pre-match trigger scheduler fires
+                # odds-fetch (market-tick-data-service) dispatches for
+                # EVERY scheduled fixture regardless of whether the
+                # fixture's league has odds_api coverage per the UAC
+                # registry.  Filter out market-tick-data-service entries
+                # when the triggering fixture's league has no odds_api
+                # coverage, so we don't waste Cloud Run executions on
+                # leagues that structurally can never produce odds rows.
+                # Other service entries (instruments-service,
+                # features-service, ml-service) are left untouched.
+                if not _league_has_odds_coverage(fixture["league_id"]):
+                    services = [svc for svc in services if svc.get("service") != "market-tick-data-service"]
+
+                if services:
+                    events.append(
+                        TriggerEvent(
+                            trigger_name=name,
+                            fixture_id=fixture_id,
+                            league_id=fixture["league_id"],
+                            kickoff_utc=fixture["kickoff_utc"],
+                            fire_at_utc=fire_at.isoformat(),
+                            services=[cast(dict[str, str], svc) for svc in services],
+                        )
                     )
-                )
 
     return events
 

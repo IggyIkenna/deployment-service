@@ -401,6 +401,18 @@ resource "google_project_iam_member" "uts_tier_sa_artifactregistry_reader" {
   member   = "serviceAccount:${each.value}"
 }
 
+# gcloud scheduler jobs describe (consolidator-pause precondition checks in one-off
+# GCS-purge scripts, e.g. purge_gas_fees_legacy_venue_prefixes_2026_08_04.py's
+# _assert_consolidator_paused()) -- launchers attaching uts-prd-sa as the VM's runtime
+# SA need this to read Cloud Scheduler job state; read-only (list/get), no job
+# create/update/run/pause capability. Granted 2026-08-05 after a live 403 on the VM.
+resource "google_project_iam_member" "uts_tier_sa_cloudscheduler_viewer" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/cloudscheduler.viewer"
+  member   = "serviceAccount:${each.value}"
+}
+
 # ---------------------------------------------------------------------------
 # P2 (issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md)
 # — wiring deploy-shared.sh (deployment-api's Cloud Run identity) to uts-prd-sa
@@ -475,5 +487,20 @@ resource "google_storage_bucket_iam_member" "uts_test_deployment_scripts_object_
 resource "google_storage_bucket_iam_member" "uts_prd_deployment_state_object_admin" {
   bucket = "unified-deployment-state-${var.project_id}"
   role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.uts_prd.email}"
+}
+
+# storage.buckets.get (bucket METADATA read, distinct from object read -- objectAdmin/
+# objectUser do NOT include it) -- needed by one-off GCS-purge scripts'
+# gcs_bucket_soft_delete_retention_seconds() §3a delete-safety pre-check
+# (_assert_soft_delete_retention()), which reads the bucket's soft-delete policy before
+# touching any object. Live 403 on uts-prd-sa 2026-08-05 (defi-gas-fees-legacy-purge VM,
+# `storage.buckets.get` denied on market-data-tick-defi-prd-...). Bucket-scoped, not
+# project-wide -- legacyBucketReader also grants storage.objects.list, already covered by
+# the tier-SA's Group-A/B objectAdmin grants elsewhere, so no capability expansion beyond
+# the one needed permission.
+resource "google_storage_bucket_iam_member" "uts_prd_tick_defi_bucket_reader" {
+  bucket = "market-data-tick-defi-prd-${var.project_id}"
+  role   = "roles/storage.legacyBucketReader"
   member = "serviceAccount:${google_service_account.uts_prd.email}"
 }

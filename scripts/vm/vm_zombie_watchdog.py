@@ -92,8 +92,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from google.cloud import (
-    compute_v1,  # noqa: TID251,RUF100 — zombie watchdog is a standalone VM daemon with direct GCP SDK access; no UTL wrapper for aggregated_list_instances at this scope
+from google.cloud import (  # noqa: TID251,RUF100 — zombie watchdog standalone VM daemon; no UTL wrapper for aggregated_list_instances at this scope
+    compute_v1,
 )
 
 if TYPE_CHECKING:

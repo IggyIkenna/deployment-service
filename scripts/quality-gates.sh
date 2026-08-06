@@ -30,6 +30,15 @@ PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 # plans/active/issues/fleet_wide_qg_capacity_crisis_continues_day2_2026_07_29.md
 PYTEST_TIMEOUT=${PYTEST_TIMEOUT:-300}
 PYRIGHT_TIMEOUT=${PYRIGHT_TIMEOUT:-300}
+# MAX_DURATION (shared base-service.sh default 300s) has drifted well below this repo's
+# actual test-suite runtime -- measured 353s/383s/421s/557s billable work across 4
+# consecutive local re-gates on 2026-08-05 (unrelated to any single change; the repo's own
+# qg_resource_baseline.json local baseline is 106.0s, from before test_vm_launcher_scripts.py
+# grew to cover every VM launcher category added since). Per the sanctioned fix philosophy
+# already applied to PYTEST_TIMEOUT/PYRIGHT_TIMEOUT above (raise the ceiling to absorb
+# legitimate growth/scheduling variance rather than suppress the check): bump past the
+# observed range with headroom for host contention.
+MAX_DURATION=${MAX_DURATION:-600}
 # deployment-api is a TEST-ONLY peer dep: deployment_service/ source never imports it,
 # but tests/ do (tests/mocks.py → deployment_api.utils.path_combinatorics). It is NOT a
 # [project.dependencies] entry because deployment-api -> deployment-service is the real

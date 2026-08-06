@@ -200,15 +200,19 @@ if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 echo "Launching $VM_NAME: features-sports FIXTURE_FEATURES backfill ${START_DATE}..${END_DATE} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 echo "  cmd: ${BACKFILL_CMD}"
 
+# Use | as metadata delimiter (gcloud ^|^ prefix) so commas in BACKFILL_CMD
+# (e.g. --tables derived_features,fixture_features) are NOT mis-parsed as
+# key=value separators. Per `gcloud topic escaping`, ^DELIM^ changes the
+# dict delimiter from comma to DELIM for that single flag value.
 METADATA="VM_TASK=features-backfill"
-METADATA="${METADATA},VM_SERVICE=features_service"
-METADATA="${METADATA},VM_OPERATION=compute"
-METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
-METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-METADATA="${METADATA},VM_END_DATE=${END_DATE}"
-METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA}|VM_SERVICE=features_service"
+METADATA="${METADATA}|VM_OPERATION=compute"
+METADATA="${METADATA}|VM_ASSET_GROUP=SPORTS"
+METADATA="${METADATA}|VM_START_DATE=${START_DATE}"
+METADATA="${METADATA}|VM_END_DATE=${END_DATE}"
+METADATA="${METADATA}|VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA}|DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA}|VM_SHUTDOWN_ON_COMPLETION=true"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
@@ -244,7 +248,7 @@ else
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --metadata="^|^startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh|${METADATA}" \
     --labels=purpose=features-sports-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 

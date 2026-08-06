@@ -49,7 +49,14 @@ odds_api_running_vm_count() { # $1=zone $2=project -> echoes count; returns 1 if
     echo "ERROR: [odds-api-guard] 'gcloud compute instances list' failed (exit ${rc}) for zone=${zone} project=${project} -- fail-closed. gcloud said: ${raw}" >&2
     return 1
   fi
-  count="$(printf '%s\n' "$raw" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
+  # Count ONLY actual instance names matching the pattern. `2>&1` merges
+  # gcloud's stderr into $raw, and when the filter matches NOTHING gcloud emits a
+  # "WARNING: The following filter keys were not present in any resource" line to
+  # stderr -- `wc -l` over the raw stream then counts that warning as 1 running VM
+  # and falsely blocks EVERY odds backfill launch (verified 2026-08-06: empty
+  # fleet -> guard refused with existing=1). Anchored grep to the name pattern
+  # excludes warnings and any non-instance output.
+  count="$(printf '%s\n' "$raw" | grep -cE "${ODDS_API_VM_NAME_PATTERN}" 2>/dev/null || true)"
   echo "$count"
 }
 

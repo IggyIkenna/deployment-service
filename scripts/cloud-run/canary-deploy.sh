@@ -39,12 +39,20 @@
 #
 # Exit codes:
 #   0 = canary promoted to 100%
-#   1 = canary rolled back (health check failed)
+#   1 = canary rolled back (health check failed) — traffic is now PINNED BY NAME
+#       to the previous revision (see the ALERT block this prints/logs); it will
+#       NOT self-heal or auto-track future deploys until explicitly restored via
+#       `gcloud run services update-traffic --to-latest`.
 #   2 = deployment error (could not deploy new revision)
 #
 # Integration:
-#   cloud-build-router.yml will call this script after building the image.
-#   This script does NOT modify cloud-build-router.yml — it is standalone.
+#   NOT currently wired into any automated caller (verified 2026-08-05 — no
+#   cloudbuild.yaml or GitHub workflow invokes this script fleet-wide). Invoked
+#   manually, or via deploy-ui.sh. The prior comment claiming cloud-build-router.yml
+#   calls this after every build was stale/aspirational — deployment-api's own
+#   main-deploy trigger deploys via a plain `gcloud run deploy` instead, which is
+#   exactly why a stuck pin here goes unnoticed by CI (ci-cd-flow.md § deploy-hygiene
+#   trap 5). This script does NOT modify cloud-build-router.yml — it is standalone.
 
 set -euo pipefail
 
@@ -291,8 +299,35 @@ else
       --project "$PROJECT" \
       --quiet 2>/dev/null || log "WARNING: Could not delete failed revision (may still be serving)"
 
+    # ── Traffic is now PINNED BY NAME to $PREV_REVISION, not tracking latest ──
+    # This is deliberate short-term safety (never auto-route back onto the revision
+    # that just failed health checks) but it does NOT self-heal: every future
+    # `gcloud run deploy` on this service keeps building + deploying green while
+    # traffic silently never moves — the exact class of bug documented in
+    # /codex/08-workflows/ci-cd-flow.md § "Image deploy-hygiene" trap 5
+    # (deployment-api sat pinned through 5 green CI deploys over ~24h, 2026-08-05).
+    # Emit a real, verifiable alert signal (Cloud Logging, severity=CRITICAL) —
+    # NOT a Slack webhook: no GSM secret for this exists yet (the CI-alerts
+    # webhook, SLACK_CI_WEBHOOK_URL, is GitHub-Actions-only; the deadman webhook
+    # is deliberately reserved for its own independent watch-the-watchers use
+    # case, per deployment_service/data_pipeline_monitors/deadman_poster.py — do
+    # NOT repurpose it). Attach a Cloud Monitoring log-based alert policy on
+    # `jsonPayload.alert_type="cloud_run_traffic_pinned"` to route this to Slack.
+    ALERT_MSG="Cloud Run service '$SERVICE' ($REGION) is now PINNED to revision $PREV_REVISION and will NOT auto-track future deploys until an operator runs: gcloud run services update-traffic $SERVICE --region $REGION --project $PROJECT --to-latest"
     log ""
-    log "ROLLBACK COMPLETE: $SERVICE reverted to $PREV_REVISION"
+    log "############################################################"
+    log "# ALERT: TRAFFIC PINNED BY REVISION NAME — ACTION REQUIRED  #"
+    log "############################################################"
+    log "$ALERT_MSG"
+    log "Future auto-deploys of $SERVICE will report SUCCESS while 0% of traffic ever reaches them."
+    log "############################################################"
+    run_cmd gcloud logging write cloud-run-traffic-pin-alert \
+      "{\"alert_type\": \"cloud_run_traffic_pinned\", \"service\": \"$SERVICE\", \"region\": \"$REGION\", \"project\": \"$PROJECT\", \"pinned_revision\": \"$PREV_REVISION\", \"failed_revision\": \"$NEW_REVISION\", \"message\": \"$ALERT_MSG\"}" \
+      --payload-type=json --severity=CRITICAL --project "$PROJECT" 2>/dev/null \
+      || log "WARNING: could not write the Cloud Logging alert entry — the log lines above are the only record"
+
+    log ""
+    log "ROLLBACK COMPLETE: $SERVICE reverted to $PREV_REVISION (traffic PINNED — see ALERT above)"
     exit 1
   fi
 fi

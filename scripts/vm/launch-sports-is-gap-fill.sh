@@ -19,7 +19,7 @@
 #     --provider API_FOOTBALL \
 #     --start-date 2019-02-15 \
 #     --end-date 2026-04-14 \
-#     [--dry-run] [--project PROJECT_ID] [--zone ZONE]
+#     [--dry-run] [--on-demand] [--project PROJECT_ID] [--zone ZONE]
 #
 # Generate entity/date args with:
 #   python3 instruments-service/scripts/query_sports_is_gaps.py
@@ -45,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --provider)      PROVIDER="$(echo "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;
     --start-date)    START_DATE="$2"; shift 2 ;;
     --end-date)      END_DATE="$2"; shift 2 ;;
+    --on-demand)     ON_DEMAND=true; shift ;;
     --dry-run)       DRY_RUN=true; shift ;;
     --project)       PROJECT_ID="$2"; shift 2 ;;
     --zone)          ZONE="$2"; shift 2 ;;
@@ -116,6 +117,13 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=${PROVIDER}"
 METADATA="${METADATA},SKIP_DEPENDENCY_CHECK=true"
 METADATA="${METADATA},STALL_TIMEOUT_SEC=7200"
 
+# Backfill VMs default to SPOT (workspace HARD RULE).
+if [[ "${ON_DEMAND:-false}" == "true" ]]; then
+    PROVISIONING_FLAGS="--provisioning-model=STANDARD"
+else
+    PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+fi
+
 if [[ "${DRY_RUN:-false}" != "true" ]]; then
     lc_verify_tarball_freshness "$CODE_BUCKET" \
         instruments-service unified-api-contracts unified-trading-library deployment-service \
@@ -128,6 +136,7 @@ gcloud compute instances create "${VM_NAME}" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
+  ${PROVISIONING_FLAGS} \
   --no-restart-on-failure \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \

@@ -1,6 +1,7 @@
 # Manifest Consolidator Liveness Watchdog — Cloud Run Job + Scheduler cron
 #
 # Plan: manifest_consolidator_liveness_health_2026_06_01
+# Issue: tradfi_pred_manifest_consolidator_cron_stuck_paused_2026_07_29 (P3)
 # Code: unified-trading-library@3732ffaa
 #   (`unified_trading_library.monitors.consolidator_liveness`)
 #
@@ -14,6 +15,16 @@
 #   CONSOLIDATOR_RECOVERED when it returns. The CLI exits non-zero if any
 #   bucket is DOWN, so the Cloud Run execution surfaces red as a second signal
 #   alongside the alert event.
+#
+# Auto-resume (2026-08-05)
+#   As of the 2026-07-29 TradFi+prediction ~20h stuck-PAUSED incident, the
+#   watchdog can now auto-resume a PAUSED consolidator cron: after N
+#   consecutive DOWN cycles with reason=scheduler_paused AND no live
+#   maintenance window (checked via the CAS-backed maintenance_window
+#   primitive in UTL), it resumes the cron and emits
+#   CONSOLIDATOR_AUTO_RESUMED (WARNING). Disabled by default; enabled here via
+#   the ``--auto-resume`` CLI flag. Threshold is the default 5 cycles (~10 min
+#   at fast-tier */2 cadence, ~1h at slow-tier */30 cadence).
 #
 # Topology
 #   A SINGLE job (not one-per-bucket like the consolidator) — the watchdog CLI
@@ -111,6 +122,16 @@ module "consolidator_liveness_job" {
     "--buckets", join(",", each.value.buckets),
     "--cycle-sec", tostring(each.value.cycle_sec),
     "--cycles-grace", tostring(each.value.cycles_grace),
+    # Bounded auto-resume: after N consecutive DOWN cycles with a confirmed
+    # scheduler_paused reason AND no live maintenance window, auto-resume the
+    # PAUSED Cloud Scheduler cron. The default --auto-resume-threshold (5 cycles
+    # ~10 min at the fast-tier */2 cadence) gives legitimate short-duration
+    # pauses time to self-recover before the watchdog steps in.
+    # Requires the service account to have:
+    #   - storage.objects.{create,delete} on <bucket>/_watchdog/consecutive_down/*
+    #     (state-tracking blobs — fail-safe: write failure skips auto-resume)
+    #   - cloudscheduler.jobs.{get,resume} on the cron jobs
+    "--auto-resume",
   ]
 
   environment_variables = {
