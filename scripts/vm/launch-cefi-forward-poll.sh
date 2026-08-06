@@ -48,7 +48,11 @@
 #
 # Singleton lock: refuses to launch if any cefi-fwd-* VM is already running
 # in the zone. Tardis API has per-key request budgets; multiple concurrent
-# VMs sharing one key thrash on 429 and waste tarball download cost.
+# VMs sharing one key thrash on 429 and waste tarball download cost. This
+# RUNNING-VM check is a list-then-create race on its own (see
+# lc_acquire_singleton_lock in lib/launcher_common.sh) — an atomic GCS lock
+# gates the decision window ahead of it, so two near-simultaneous invocations
+# can no longer both slip through before either VM exists.
 set -euo pipefail
 
 # shellcheck source=lib/launcher_common.sh
@@ -92,6 +96,23 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+
+# Duplicate-launch race fix (P2 follow-up to
+# cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md):
+# the RUNNING-VM check just below is a classic check-then-act race — a
+# freshly-created VM takes tens of seconds to reach RUNNING, so two
+# near-simultaneous invocations of this launcher (confirmed LIVE: two
+# `instances.insert` calls 13s apart on the original incident, then 46s apart
+# on its own relaunch, both from unified-trading-sa) can BOTH see "nothing
+# running" and BOTH proceed to create. lc_acquire_singleton_lock closes that
+# window with an ATOMIC GCS create-if-absent conditional write (only ONE
+# invocation can hold the lock for this launcher at a time — a concurrent
+# second invocation refuses immediately here instead of racing the RUNNING
+# check below). Skipped in --dry-run (no side effects); --force bypasses it
+# the same way it bypasses the RUNNING check.
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+  lc_acquire_singleton_lock "cefi-fwd-launch" "$PROJECT" 300 "$FORCE" || exit 1
+fi
 
 if ! $FORCE; then
   # Anchor on a digit right after the prefix (the RUN_TS timestamp) so this
