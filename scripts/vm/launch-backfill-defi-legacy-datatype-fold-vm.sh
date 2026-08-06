@@ -93,7 +93,7 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
-BOOT_DISK_GB="${BOOT_DISK_GB:-100}"
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 if [[ "${ON_DEMAND:-false}" == "true" ]]; then
     PROVISIONING_ARGS=(--provisioning-model=STANDARD)
