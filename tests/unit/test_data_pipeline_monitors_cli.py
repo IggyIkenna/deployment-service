@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from unified_trading_library import (
+    ACTIVE_PREFIX,
     ARCHIVE_PREFIX,
     DEFAULT_BUCKET,
     DeploymentRegistryEntry,
@@ -291,6 +292,37 @@ def test_main_exit_code_mode_reaps_gone_vm_registry_entry(monkeypatch):
     stored = json.loads(reg_storage.download_string(DEFAULT_BUCKET, archive_keys[0]))
     assert stored["status"] == "failed"
     assert stored["extras"]["reap_reason"] == "vm_not_running"
+
+
+def test_main_exit_code_mode_census_unavailable_no_false_vm_not_running_reap(monkeypatch):
+    """cefi_satellite_ao_dispatch_batch4-003 / Finding 3: a transient GCE list-API
+    failure/timeout made _list_running_vms() collapse to an empty list which the sweep
+    passed as running_vm_names={} — _reap_reason then classified EVERY stale-heartbeat
+    active entry as vm_not_running, falsely reaping a genuinely-RUNNING VM at
+    2026-07-31T05:46:53Z. Fix: _list_running_vms() returns None on failure and the
+    sweep passes running_vm_names=None, so the reaper falls back to heartbeat-age-only
+    (a 1h-stale heartbeat < the 6h max_age must NOT be reaped while the census is
+    unavailable)."""
+    storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
+    monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
+    # Census UNAVAILABLE (the API failed / timed out this tick) — not an empty census.
+    monkeypatch.setattr(cli, "_list_running_vms", lambda: None)
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+
+    reg_storage = InMemoryStorageClient()
+    registry = DeploymentsRegistry(bucket=DEFAULT_BUCKET, storage=reg_storage)
+    old_hb = (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry.register(_make_registry_entry(last_heartbeat_at=old_hb))
+    monkeypatch.setattr(cli, "DeploymentsRegistry", lambda *_a, **_kw: registry)
+
+    rc = cli.main(["--mode", "exit-code"])
+    assert rc == 0
+
+    # 1h-stale heartbeat < 6h max_age + census unavailable → NOT reaped (no false
+    # vm_not_running on a still-RUNNING VM).
+    active_keys = reg_storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX)
+    assert len(active_keys) == 1
 
 
 def _preempted_result(name: str) -> exit_code_fleet_monitor.TerminationResult:
@@ -594,11 +626,14 @@ def test_meta_catalogue_fresh_no_alert(monkeypatch):
 # ── _list_running_vms timeout (DP-WATCHER-002 root-cause fix) ────────────────
 
 
-def test_list_running_vms_returns_empty_on_timeout(monkeypatch):
-    """_list_running_vms must return [] within _LIST_VMS_TIMEOUT_SECS even when
+def test_list_running_vms_returns_none_on_timeout(monkeypatch):
+    """_list_running_vms must return None within _LIST_VMS_TIMEOUT_SECS even when
     aggregated_list_instances blocks indefinitely — the sentinel write must still
     fire so the Cloud Run Job finishes SUCCEEDED and no DP_CRON_DID_NOT_FIRE alert
-    is raised."""
+    is raised. ``None`` (not []) signals "census unavailable" so the reap_stale()
+    wiring passes running_vm_names=None instead of an over-reaping empty set
+    (cefi_content_apply_memory_freeze_recurs_post_fix_and_registry_false_reap_2026_07_31.md
+    Finding 3)."""
     import threading
 
     hang_event = threading.Event()
@@ -617,7 +652,7 @@ def test_list_running_vms_returns_empty_on_timeout(monkeypatch):
     finally:
         hang_event.set()  # release the blocked thread so it doesn't leak
 
-    assert result == []
+    assert result is None
 
 
 def test_list_running_vms_returns_results_normally(monkeypatch):
