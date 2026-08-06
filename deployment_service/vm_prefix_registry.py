@@ -213,6 +213,17 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # `features-sports-service/scripts/launch_parallel_backfill.sh`.
     # ------------------------------------------------------------------
     "fss-backfill-vm-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # SFI-progressive features backfill (launch-sfi-progressive-features-backfill-vm.sh,
+    # compute_sfi_progressive_only.py). Previously fell through to the generic "features-"
+    # catch-all (bucket=None, heartbeat-only) despite writing a real per-VM manifest shard —
+    # BUCKET is a HARDCODED single value in the launcher (BUCKET="features-sports-prd-${PROJECT}",
+    # passed via --bucket) and the underlying script uses ManifestWriter(per_vm_shards=True)
+    # (standard exact `_index/per_vm/{vm_name}.parquet` filename, confirmed via source read —
+    # not the "-part{N}" chunked variant some other reconcilers use). Registered 2026-08-06
+    # (vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md) — closes the exact class of blind
+    # spot the 2026-07-18 sports-fixtures incident (heartbeating VM, zero rows written, 3.5h
+    # undetected) documented in this module's own docstring, for this specific launcher family.
+    "features-sfi-progressive-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
     # Sports instruments-reference v3 backfill (launch-sports-instruments-
     # reference-vm.sh emits 3 VMs `sports-ref-v3-{1,2,3}` for chunked
@@ -625,6 +636,27 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "manifest-recon-": None,
     # ------------------------------------------------------------------
+    # Manifest recon APPLY (launch-manifest-recon-apply-vm.sh) — real WRITE variant
+    # of the read-only "manifest-recon-" dry-run above (--unphantom / --apply-flips
+    # chained across reconcile_phantom_manifest_rows_all.py + reconcile_expected_
+    # absence_reasons.py + reconcile_legacy_blank_to_typed_reason.py, one ASSET_GROUP
+    # per VM, cefi/defi/tradfi only — VM_NAME=manifest-recon-apply-{ag}-{ts}). LONGER
+    # prefix wins longest-prefix-match over the shorter read-only "manifest-recon-"
+    # entry above, same reasoning as "tradfi-bf-fred-" vs "tradfi-bf-". Real bucket
+    # (not heartbeat-only): the launcher passes VM_NAME + MANIFEST_PER_VM_SHARDS=true
+    # to all 3 chained scripts, and 2 of the 3 (reconcile_expected_absence_reasons.py,
+    # reconcile_legacy_blank_to_typed_reason.py — confirmed via source read) write the
+    # exact `_index/per_vm/{vm_name}.parquet` shard the watchdog polls, into the SAME
+    # per-AG bucket resolved via resolve_bucket_name(kind="market-data", asset_group=ag)
+    # — identical to the _TICK_* constants used throughout this file. Registered
+    # 2026-08-06 (vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md) — was
+    # previously heartbeat-only via the shorter "manifest-recon-" catch-all despite
+    # writing real per-VM manifest progress.
+    # ------------------------------------------------------------------
+    "manifest-recon-apply-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "manifest-recon-apply-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "manifest-recon-apply-tradfi-": VmPrefixSpec(bucket=_TICK_TRADFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # Tier-2 per-datapoint id+schema validation (launch-datapoint-validation-vm.sh).
     # ONE sanctioned single-walk per (asset_group, campaign) — reads the corpus,
     # writes a RESULTS manifest (never data) to the flat datapoint-validation
@@ -828,9 +860,27 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Blank-reason reconciler (writegate Phase 3.D.5 Wave 2.M, 2026-05-07).
     # Walks an asset_group manifest, reclassifies blank-reason
     # empty_confirmed rows per the asset-group-specific legitimacy rule.
-    # Heartbeat-only — writes to per-VM manifest shards.
+    # Generic fallback for any asset_group not covered by the 5 explicit
+    # per-AG entries below (kept for safety — real launches always embed
+    # ASSET_GROUP right after this prefix, see launch-blank-reason-recon-vm.sh
+    # VM_NAME=blank-reason-recon-{ag}-{ts}, so the longer per-AG entries win
+    # longest-prefix-match in practice).
     # ------------------------------------------------------------------
     "blank-reason-recon-": None,
+    # Real bucket (not heartbeat-only) — the launcher's own docstring states the
+    # exact write target: gs://market-data-tick-{asset_group}-{pid}/_index/per_vm/
+    # {vm_name}.parquet (sports via instruments-store-sports instead), confirmed
+    # against reconcile_blank_error_reason_rows.py's ASSET_GROUP_BUCKETS map +
+    # its exact (non-chunked) `_index/per_vm/{vm_name}.parquet` per_vm_blob write —
+    # matches the exact filename the watchdog's shard-mtime check polls. Was
+    # previously mis-registered as heartbeat-only despite this. Longer prefix
+    # wins longest-prefix-match over the generic "blank-reason-recon-" entry
+    # above. Registered 2026-08-06 (vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md).
+    "blank-reason-recon-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "blank-reason-recon-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "blank-reason-recon-tradfi-": VmPrefixSpec(bucket=_TICK_TRADFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "blank-reason-recon-sports-": VmPrefixSpec(bucket=_INSTR_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "blank-reason-recon-prediction-": VmPrefixSpec(bucket=_TICK_PRED, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
@@ -1201,6 +1251,21 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # watchdog VM. Registered 2026-08-03 per
     # plans/active/issues/cefi_onchain_perp_forward_capture_outage_2026_08_03.md.
     "cefi-onchain-fwd-daily-cron-": None,
+    # CeFi perp-funding corpus compute daily cron host — SCHEDULED_RECURRING, same
+    # pattern as the three cron-host entries above. The corpus compute (the single
+    # thing CanonicalPerpFundingProvider reads for the CARRY_BASIS_PERP venues) was
+    # promoted to a features-service CLI subcommand (`features-service@b2d14c9d`,
+    # 2026-08-06); this cron host fires `launch-features-vm.sh --feature-family cefi
+    # --asset-group CEFI --launch-mode full` daily at 07:00 UTC (staggered clear of
+    # tradfi-fwd 06:00 / cefi-onchain-fwd 08:00 / cefi-fwd 09:00 / deribit-options
+    # 09:15). Heartbeat-only (None) — the cron host writes no manifest shards; the
+    # worker VM it spawns (`features-cefi-cefi-*`) carries the data output and has
+    # its own `features-` VmPrefixSpec entry above.
+    # Launcher: launch-cefi-perp-funding-daily-cron-vm.sh (fires 07:00 UTC).
+    # Singleton-locked; --force bypasses. After updating this dict, relaunch the
+    # watchdog VM. Registered 2026-08-06 per
+    # plans/active/issues/defi_cefi_venue_chain_axis_contamination_2026_07_28.md.
+    "cefi-perp-funding-daily-cron-": None,
     # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
     # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
     # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.
