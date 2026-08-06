@@ -1948,6 +1948,8 @@ python() {
 export -f python
 gsutil() { return 0; }
 export -f gsutil
+gcloud() { return 0; }
+export -f gcloud
 stat() {
     if [[ "$1" == "-c" && "$2" == "%s" ]]; then
         wc -c < "$3" 2>/dev/null | tr -d ' '
@@ -2256,6 +2258,8 @@ python() {
 export -f python
 gsutil() { return 0; }
 export -f gsutil
+gcloud() { return 0; }
+export -f gcloud
 stat() {
     if [[ "$1" == "-c" && "$2" == "%s" ]]; then
         wc -c < "$3" 2>/dev/null | tr -d ' '
