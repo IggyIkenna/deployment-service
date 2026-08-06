@@ -62,6 +62,11 @@ case), the issue body + ping are emitted into the ``DP_*`` event ``details`` and
 the operator-inbox ping is best-effort skipped — the alert itself carries the
 candidate list so nothing is lost; a planning-VM slot files the doc from the
 alert. The path-present case (a VM/slot with the PM clone) writes the file.
+
+Escalation-dispatch dedup (Option A, 2026-08-06): before the fast-spawn
+dispatch below, ``route_finding`` defers to ``escalation_dedup.py`` (own
+module, see its docstring) to skip a redundant worker spawn for an
+already-diagnosed, unchanged DP-FETCH-009 condition.
 """
 
 from __future__ import annotations
@@ -84,6 +89,8 @@ from unified_trading_library import (  # noqa: qg-deep-import
     get_secret_client,
     log_event,
 )
+
+from deployment_service.data_pipeline_monitors import escalation_dedup
 
 if TYPE_CHECKING:
     # Static-analysis-only import (never executed at runtime — TYPE_CHECKING is
@@ -913,12 +920,33 @@ def route_finding(
         or (effective_tier is EscalationTier.FILE_ISSUE and filed_issue_path is not None)
         or actuator_needs_worker
     )
+
+    # Escalation-dispatch dedup (Option A, see escalation_dedup.py) — a skip
+    # still counts as "handled": the DP_* event below always fires either way,
+    # only the fast-spawn action is gated.
+    dedup: dict[str, object] | None = None
     if should_dispatch and not dry_run:
+        dedup_pm_root = _resolve_pm_path(pm_repo_path)
+        if dedup_pm_root is not None:
+            dedup = escalation_dedup.check_dispatch_dedup_for_finding(finding, pm_root=dedup_pm_root)
+        if dedup is not None:
+            result["escalation_dedup"] = dedup
+            event_details["escalation_dedup_issue"] = dedup.get("issue_path", "")
+            event_details["escalation_dedup_skipped"] = bool(dedup.get("skipped"))
+
+    if should_dispatch and not dry_run and not (dedup is not None and dedup.get("skipped")):
         dispatch = _dispatch_to_orchestrator(finding, filed_issue_path)
         result["dispatch"] = dispatch
         event_details["fast_spawn_dispatched"] = bool(dispatch.get("dispatched"))
         if not dispatch.get("dispatched"):
             event_details["fast_spawn_skipped"] = str(dispatch.get("reason", "unknown"))
+    elif dedup is not None and dedup.get("skipped"):
+        result["dispatch"] = {
+            "dispatched": False,
+            "reason": "dedup_open_issue_no_new_activity",
+            "issue_path": dedup.get("issue_path"),
+        }
+        event_details["fast_spawn_skipped"] = "dedup_open_issue_no_new_activity"
 
     if not dry_run:
         try:
