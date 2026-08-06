@@ -39,6 +39,9 @@
 # Usage:
 #   bash launch-cefi-forward-poll.sh                       # yesterday (T-1)
 #   bash launch-cefi-forward-poll.sh 2026-04-15 2026-04-18 # explicit window
+#   bash launch-cefi-forward-poll.sh --venue DERIBIT 2026-05-23 2026-08-05  # single-venue targeted backfill
+#   bash launch-cefi-forward-poll.sh --force-download 2026-05-23 2026-08-05 # bypass false-"captured" pre-flight
+#   bash launch-cefi-forward-poll.sh --mtds-sha <full-sha> ...               # pin the mtds-code tarball
 #   bash launch-cefi-forward-poll.sh --force ...           # bypass singleton lock
 #
 # Cost: e2-standard-8 ~30-60 min per run depending on day breadth.
@@ -53,6 +56,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
+VENUE=""
+FORCE_DOWNLOAD=false
+MTDS_SHA=""
 
 _positional=()
 DRY_RUN=false
@@ -62,6 +68,9 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --venue) VENUE="$2"; shift 2 ;;
+    --force-download) FORCE_DOWNLOAD=true; shift ;;
+    --mtds-sha) MTDS_SHA="$2"; shift 2 ;;
     *) _positional+=("$1"); shift ;;
   esac
 done
@@ -151,6 +160,23 @@ METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# Targeted venue / tarball / force scoping — setup-data-pipeline-vm.sh maps these
+# metadata keys to MTDS CLI args: VM_VENUE → --venues (single-venue DERIBIT-only
+# backfill), MTDS_TARBALL_SHA → mtds-code@<sha> pinned tarball, VM_FORCE → --force
+# (bypass the false-"captured" manifest pre-flight; see
+# cefi_tardis_derivative_ticker_historical_gap_2026_08_04.md RC2/R3 notes).
+if [[ -n "$VENUE" ]]; then
+  METADATA="${METADATA},VM_VENUE=${VENUE}"
+  echo "  Venue-restricted: ${VENUE}"
+fi
+if [[ -n "$MTDS_SHA" ]]; then
+  METADATA="${METADATA},MTDS_TARBALL_SHA=${MTDS_SHA}"
+  echo "  Pinning MTDS tarball sha: ${MTDS_SHA:0:12}"
+fi
+if [[ "$FORCE_DOWNLOAD" == "true" ]]; then
+  METADATA="${METADATA},VM_FORCE=true"
+  echo "  Force download (--force): bypass pre-flight skip"
+fi
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""

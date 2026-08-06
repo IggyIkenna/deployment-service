@@ -132,7 +132,7 @@ def check_consolidator_oom(
 
         # An OOM execution exists. Cross-check: is the index ALSO stale?
         failed_count = int(diag.get("failed_count", 0))
-        oom_reason = str(diag.get("oom_reason", ""))
+        oom_reason = str(diag.get("oom_reason", ""))  # noqa: qg-empty-fallback — log-only diagnostic string, absent reason is a valid "unclassified" state
         completion_age_min = diag.get("completion_age_min")  # float | None
 
         index_age_min = index_age_reader(ag)
