@@ -114,28 +114,26 @@ SOURCE_RATE_LIMITS_RPM: dict[str, int | None] = {
     # TODO: empirically calibrate the FootyStats ceiling (a calibration probe
     # will measure the true cap and replace this conservative placeholder).
     "footystats": 60,
-    # Understat — public scrape, no API quota; politeness-throttled at the
-    # adapter. Conservative default 30 req/min (~0.5 req/sec scrape politeness).
-    # TODO: empirically calibrate the Understat scrape ceiling.
-    "understat": 30,
-    # SoccerFootball-Info (SFI) — RapidAPI tier ≈ 4 req/sec ⇒ 240 req/min
-    # (the adapter's _min_request_interval=0.34 ≈ 3 req/sec stays under it).
-    # TODO: empirically calibrate against the actual RapidAPI plan headers.
-    "soccer_football_info": 240,
-    # Transfermarkt — RapidAPI scrape proxy; ~1 req/sec politeness ceiling.
-    # TODO: empirically calibrate the actual RapidAPI plan cap.
-    "transfermarkt": 60,
+    # Understat — public scrape. Measured 2026-08-06 ramp-to-429 probe (VM uts-rate-calibration-probe2-20260806-195923):
+    # no reject up to max_rpm=3600; actual ceiling >=3600. Safe floor = 2880 (0.8x 3600 probe max).
+    "understat": 2880,
+    # SoccerFootball-Info (SFI) — RapidAPI. Measured 2026-08-06 ramp-to-429 probe (VM uts-rate-calibration-probe2-20260806-195923):
+    # break=240 rpm (4 rps), last_ok=180 rpm, safe=192 rpm (0.8x break). Recovery >120s (not measured; limit of probe).
+    "soccer_football_info": 192,
+    # Transfermarkt — RapidAPI scrape proxy. Measured 2026-08-06 ramp-to-429 probe (VM uts-rate-calibration-probe2-20260806-195923):
+    # no reject up to max_rpm=3600; actual ceiling >=3600. Safe floor = 2880 (0.8x 3600 probe max).
+    "transfermarkt": 2880,
     # ── Cross-cutting / market data ─────────────────────────────────────────
-    # Open-Meteo free tier = 10,000 calls/day ≈ soft; no documented per-minute
-    # cap. Conservative default 60 req/min until confirmed.
-    # TODO: empirically calibrate the Open-Meteo per-minute ceiling.
-    "open_meteo": 60,
+    # Open-Meteo free tier = 10,000 calls/day ≈ soft.
+    # Measured 2026-08-06 ramp-to-429 probe (VM uts-rate-calibration-probe-20260806-195143):
+    # break=600 rpm, last_ok=540 rpm, safe=480 rpm (0.8x break), recovery=1.24s HTTP 429.
+    "open_meteo": 480,
     # Databento — usage-based subscription; the billing-fail-closed allowlist
     # gates COST, not a req/min cap. No documented per-minute throttle to split.
     # TODO: confirm whether the Live/Historical API enforces a per-key rps.
     "databento": None,
-    # Polymarket (CLOB + Gamma) — public endpoints; no published hard rpm cap.
-    # TODO: confirm the real ceiling before fanning out a Polymarket swarm.
+    # Polymarket (CLOB + Gamma) — per-IP ceiling governs (see SOURCE_PER_IP_LIMITS).
+    # No fleet-divided cap: each VM/IP gets its own window independently.
     "polymarket_clob": None,
     "polymarket_gamma_api": None,
     # TheGraph (DEX subgraphs) — keyed; the defi handlers round-robin a 9-key
@@ -231,12 +229,18 @@ SOURCE_PER_IP_LIMITS: dict[str, PerIpLimit] = {
     # the per-IP ceiling (or that billing is the only limit). Modelled per-IP so
     # the allocator never divides one ceiling across the Databento fleet.
     "databento": PerIpLimit(rpm=None, calibrated=False, note="usage-billed; per-IP transport, scale via more IPs"),
-    # Polymarket (CLOB + Gamma) — public endpoints, LIKELY per-IP throttled
-    # (operator: "probe it"). Conservative pre-calibration placeholder 600/min
-    # per IP (~10 req/sec politeness) until the ramp probe measures the real
-    # per-IP break point. Per-IP: each Polymarket VM uses the full ceiling.
-    "polymarket_clob": PerIpLimit(rpm=600, calibrated=False, note="likely per-IP; PLACEHOLDER until ramp probe"),
-    "polymarket_gamma_api": PerIpLimit(rpm=600, calibrated=False, note="likely per-IP; PLACEHOLDER until ramp probe"),
+    # Polymarket CLOB — measured 2026-08-06 ramp-to-429 probe (VM uts-rate-calibration-probe-20260806-195143):
+    # no reject up to max_rpm=3600 (probe ceiling); actual ceiling >=3600 rpm. Safe floor = 2880 (0.8x 3600).
+    "polymarket_clob": PerIpLimit(
+        rpm=2880,
+        calibrated=True,
+        note="measured 2026-08-06 probe; no reject up to 3600 rpm; safe floor 2880 (0.8x 3600); actual ceiling >=3600",
+    ),
+    # Polymarket Gamma API — measured 2026-08-06 ramp-to-429 probe:
+    # break=2040 rpm, last_ok=1980 rpm, safe=1632 rpm (0.8x break), recovery=1.01s HTTP 429.
+    "polymarket_gamma_api": PerIpLimit(
+        rpm=1632, calibrated=True, note="measured 2026-08-06 probe; break=2040 rpm; recovery=1.01s HTTP 429"
+    ),
 }
 
 
