@@ -1251,6 +1251,21 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # watchdog VM. Registered 2026-08-03 per
     # plans/active/issues/cefi_onchain_perp_forward_capture_outage_2026_08_03.md.
     "cefi-onchain-fwd-daily-cron-": None,
+    # CeFi perp-funding corpus compute daily cron host — SCHEDULED_RECURRING, same
+    # pattern as the three cron-host entries above. The corpus compute (the single
+    # thing CanonicalPerpFundingProvider reads for the CARRY_BASIS_PERP venues) was
+    # promoted to a features-service CLI subcommand (`features-service@b2d14c9d`,
+    # 2026-08-06); this cron host fires `launch-features-vm.sh --feature-family cefi
+    # --asset-group CEFI --launch-mode full` daily at 07:00 UTC (staggered clear of
+    # tradfi-fwd 06:00 / cefi-onchain-fwd 08:00 / cefi-fwd 09:00 / deribit-options
+    # 09:15). Heartbeat-only (None) — the cron host writes no manifest shards; the
+    # worker VM it spawns (`features-cefi-cefi-*`) carries the data output and has
+    # its own `features-` VmPrefixSpec entry above.
+    # Launcher: launch-cefi-perp-funding-daily-cron-vm.sh (fires 07:00 UTC).
+    # Singleton-locked; --force bypasses. After updating this dict, relaunch the
+    # watchdog VM. Registered 2026-08-06 per
+    # plans/active/issues/defi_cefi_venue_chain_axis_contamination_2026_07_28.md.
+    "cefi-perp-funding-daily-cron-": None,
     # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
     # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
     # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.

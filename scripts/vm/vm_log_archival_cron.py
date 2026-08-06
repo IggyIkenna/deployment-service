@@ -139,6 +139,8 @@ _LONG_LIVED_VM_PREFIXES: tuple[str, ...] = (
     "honest-coverage-",
     "tradfi-fwd-daily-cron-",
     "cefi-fwd-daily-cron-",
+    "cefi-onchain-fwd-daily-cron-",  # (added 2026-08-06 — missed at its 2026-08-03 registration)
+    "cefi-perp-funding-daily-cron-",  # (added 2026-08-06 — cefi perp-funding corpus compute cron)
 )
 
 

@@ -29,6 +29,7 @@
 # (feature_family × asset_group) viability matrix (lifted from the legacy
 # `launch-features-backfill-vm.sh` cell map):
 #     calendar         : CEFI, TRADFI                (no --asset-group passed; output is global)
+#     cefi             : CEFI only
 #     commodity        : TRADFI only
 #     cross_instrument : CEFI, TRADFI, PREDICTION
 #     delta_one        : CEFI, DEFI, TRADFI, PREDICTION
@@ -151,7 +152,7 @@ Usage: launch-features-vm.sh \
     [--env <prod|staging|dev>]
 
 feature-family ∈ {
-  calendar, commodity, cross_instrument, delta_one,
+  calendar, cefi, commodity, cross_instrument, delta_one,
   multi_timeframe, onchain, sports, volatility
 }
 asset-group   ∈ { CEFI, DEFI, TRADFI, SPORTS, PREDICTION, GLOBAL }
@@ -205,6 +206,7 @@ _is_viable_cell() {
     local family="$1" ag="$2"
     case "$family/$ag" in
         calendar/CEFI|calendar/TRADFI|calendar/GLOBAL) return 0 ;;
+        cefi/CEFI) return 0 ;;
         commodity/TRADFI) return 0 ;;
         cross_instrument/CEFI|cross_instrument/TRADFI|cross_instrument/PREDICTION) return 0 ;;
         delta_one/CEFI|delta_one/DEFI|delta_one/TRADFI|delta_one/PREDICTION) return 0 ;;

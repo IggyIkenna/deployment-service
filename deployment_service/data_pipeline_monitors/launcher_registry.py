@@ -413,6 +413,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "tradfi-fwd-daily-cron-": None,  # cron HOST (spawns tradfi-fwd-* workers) — not itself a backfill
     "cefi-fwd-daily-cron-": None,  # cron HOST (spawns cefi-fwd-* workers) — not itself a backfill
     "cefi-onchain-fwd-daily-cron-": None,  # cron HOST (spawns aster-fwd-/cefi-lighter-/cefi-extended-/cefi-hyperliquid- workers) — not itself a backfill
+    "cefi-perp-funding-daily-cron-": None,  # cron HOST (spawns features-cefi-cefi-* worker) — not itself a backfill
     "bucket-rsync-": None,  # one-off bucket rsync — campaign cutover, no recurring launcher
     "vm-zombie-watchdog-": None,  # the watchdog itself — never a relaunch target
     "dm-": None,  # deploy-missing surgical VM — launched by deployment-api, not a recurring launcher
