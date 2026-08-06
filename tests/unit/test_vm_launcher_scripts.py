@@ -736,6 +736,150 @@ class TestForwardPollCronHostSingletonCollision:
         )
 
 
+class TestAcquireSingletonLock:
+    """Regression coverage for the cefi-fwd duplicate-launch race — P2 follow-up to
+    cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md.
+
+    Two confirmed LIVE double-launches (13s apart, then 46s apart on the very
+    relaunch of the first) both from unified-trading-sa: `launch-cefi-forward-poll.sh`'s
+    `gcloud compute instances list --filter=...status=RUNNING` singleton check is a
+    classic list-then-create race — a freshly-created VM takes tens of seconds to
+    reach RUNNING, so two near-simultaneous invocations can both see "nothing
+    running" and both proceed to create. `lc_acquire_singleton_lock`
+    (launcher_common.sh) closes that window with a GCS create-if-absent conditional
+    PUT (`--if-generation-match=0`) — genuinely atomic at the GCS API level. These
+    tests mirror that atomicity with `mkdir` (atomic at the filesystem level, same
+    "exactly one racer wins" guarantee) via a fake `gcloud` shell function, so a
+    real concurrency test doesn't need live GCP credentials.
+    """
+
+    LAUNCHER_LIB_PATH = Path(__file__).parent.parent.parent / LAUNCHER_COMMON_PATH
+
+    # A fake `gcloud` covering exactly the two subcommands
+    # lc_acquire_singleton_lock calls: `storage objects describe` (read
+    # generation/update_time back from a directory acting as the "GCS object",
+    # `mkdir` on create standing in for GCS's atomic create-if-absent) and
+    # `storage cp ... --if-generation-match=<N>` (the conditional write itself —
+    # N=0 maps to `mkdir` create-only-if-absent, N=<generation> maps to an
+    # overwrite gated on the directory's recorded generation matching, mirroring
+    # a real GCS conditional PUT's semantics either way).
+    _FAKE_GCLOUD_FN = r"""
+gcloud() {
+    if [[ "$1 $2" == "storage objects" && "$3" == "describe" ]]; then
+        local uri="$4" fmt="" lockdir
+        for a in "$@"; do [[ "$a" == --format=* ]] && fmt="${a#--format=}"; done
+        lockdir="${FAKE_GCS_ROOT}/$(printf '%s' "$uri" | sed 's#gs://##; s#/#_#g')"
+        if [[ -d "$lockdir" ]]; then
+            case "$fmt" in
+                "value(generation)") cat "$lockdir/generation" 2>/dev/null ;;
+                "value(update_time)") cat "$lockdir/update_time" 2>/dev/null ;;
+            esac
+            return 0
+        fi
+        return 1
+    elif [[ "$1 $2" == "storage cp" ]]; then
+        local dst="$4" match="" lockdir
+        for a in "$@"; do [[ "$a" == --if-generation-match=* ]] && match="${a#--if-generation-match=}"; done
+        lockdir="${FAKE_GCS_ROOT}/$(printf '%s' "$dst" | sed 's#gs://##; s#/#_#g')"
+        if [[ "$match" == "0" ]]; then
+            mkdir "$lockdir" 2>/dev/null || return 1
+        else
+            [[ -d "$lockdir" ]] || return 1
+            local cur
+            cur="$(cat "$lockdir/generation" 2>/dev/null || echo 0)"
+            [[ "$cur" == "$match" ]] || return 1
+        fi
+        echo "1" > "$lockdir/generation"
+        date -u +%FT%TZ > "$lockdir/update_time"
+        return 0
+    fi
+    return 1
+}
+export -f gcloud
+"""
+
+    def _run(self, script_body: str, fake_gcs_root: Path) -> subprocess.CompletedProcess[str]:
+        script = f'''
+FAKE_GCS_ROOT="{fake_gcs_root}"
+{self._FAKE_GCLOUD_FN}
+source "{self.LAUNCHER_LIB_PATH}"
+{script_body}
+'''
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+
+    def test_acquires_lock_when_absent(self, tmp_path: Path):
+        result = self._run('lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 300 "false"', tmp_path)
+        assert result.returncode == 0, result.stderr
+
+    def test_refuses_when_a_fresh_lock_is_already_held(self, tmp_path: Path):
+        # First call wins and plants a fresh lock; the second (simulating the
+        # second of two near-simultaneous launcher invocations) must refuse.
+        script = (
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 300 "false" || exit 9\n'
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 300 "false"\n'
+        )
+        result = self._run(script, tmp_path)
+        assert result.returncode == 1, result.stderr
+        assert "already in flight" in result.stderr
+
+    def test_reclaims_a_stale_lock_past_ttl(self, tmp_path: Path):
+        # A lock older than the TTL (the crash-recovery case — no process ever
+        # explicitly releases the lock, it self-clears) must be reclaimable
+        # rather than jamming every future launch forever.
+        script = (
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 1 "false" || exit 9\n'
+            "sleep 2\n"
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 1 "false"\n'
+        )
+        result = self._run(script, tmp_path)
+        assert result.returncode == 0, result.stderr
+
+    def test_force_bypasses_without_touching_gcloud(self, tmp_path: Path):
+        # force=true must short-circuit before any gcloud call — verified by
+        # planting a lock dir a real conditional-create would collide with,
+        # then confirming force still succeeds unconditionally.
+        script = (
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 300 "false" || exit 9\n'
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 300 "true"\n'
+        )
+        result = self._run(script, tmp_path)
+        assert result.returncode == 0, result.stderr
+
+    def test_independent_lock_keys_do_not_contend(self, tmp_path: Path):
+        script = (
+            'lc_acquire_singleton_lock "cefi-fwd-launch" "proj" 300 "false" || exit 9\n'
+            'lc_acquire_singleton_lock "tradfi-fwd-launch" "proj" 300 "false"\n'
+        )
+        result = self._run(script, tmp_path)
+        assert result.returncode == 0, result.stderr
+
+    def test_concurrent_launches_exactly_one_wins(self, tmp_path: Path):
+        """The actual regression: N near-simultaneous invocations racing for the
+        SAME lock_key on a cold (no pre-existing lock) start — exactly one must
+        acquire, matching the atomic-CAS guarantee a plain list-then-create
+        singleton check cannot provide. Non-flaky: `mkdir`'s exactly-once-wins
+        atomicity is an OS guarantee, not a timing-dependent probability — see
+        the class docstring.
+        """
+        n = 12
+        script_tpl = f'''
+FAKE_GCS_ROOT="{tmp_path}"
+{self._FAKE_GCLOUD_FN}
+source "{self.LAUNCHER_LIB_PATH}"
+rc=0
+lc_acquire_singleton_lock "race-lock" "proj" 300 "false" || rc=$?
+echo "$rc"
+'''
+        procs = [
+            subprocess.Popen(["bash", "-c", script_tpl], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for _ in range(n)
+        ]
+        outcomes = [p.communicate()[0].strip() for p in procs]
+
+        assert outcomes.count("0") == 1, f"expected exactly one winner among {n} racers, got outcomes={outcomes}"
+        assert outcomes.count("1") == n - 1, f"every loser must return 1 (refused), got outcomes={outcomes}"
+
+
 class TestErrorHandling:
     """Test error handling patterns in launcher scripts"""
 

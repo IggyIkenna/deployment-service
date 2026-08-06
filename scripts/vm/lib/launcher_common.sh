@@ -19,6 +19,16 @@
 #                                            pattern (bucket_iam_write_protection_per_tier P2.2d)
 #   lc_singleton_check <prefix> <zone> <project> [force=false]
 #                                          — refuse duplicate launch unless force=true
+#   lc_acquire_singleton_lock <lock_key> <project> [ttl_seconds=300] [force=false]
+#                                          — ATOMIC GCS create-if-absent mutex closing
+#                                            the TOCTOU window lc_singleton_check's own
+#                                            list-then-create pattern cannot close on
+#                                            its own (see the function docstring below
+#                                            for the confirmed live incident this
+#                                            fixes). No release call — the lock is
+#                                            TTL-bounded and self-clears; call this
+#                                            once, right before your existing
+#                                            singleton/RUNNING-VM check.
 #   lc_gcloud_create <vm_name> <project> <zone> <machine_type> <disk_gb> <metadata> <labels>
 #                    [service_account]
 #                                          — standard gcloud compute instances create wrapper;
@@ -200,6 +210,113 @@ incidents). If confirmed stale:
 EOF
         exit 1
     fi
+}
+
+# ---------------------------------------------------------------------------
+# lc_acquire_singleton_lock <lock_key> <project> [ttl_seconds=300] [force=false]
+# ---------------------------------------------------------------------------
+# Closes the TOCTOU race lc_singleton_check's own `list --filter=...RUNNING`
+# pattern CANNOT close on its own: a freshly-created VM takes tens of seconds
+# to reach RUNNING, so two near-simultaneous invocations of the SAME launcher
+# can both see "nothing running" and both proceed to `gcloud compute
+# instances create`. Confirmed LIVE twice in the same incident window
+# (`cefi-fwd-*`, `unified-trading-sa`): two `instances.insert` calls 13s
+# apart on the original launch, then 46s apart on its own relaunch — see
+# plans/active/issues/cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md
+# P2 follow-up. A list-then-create check can NEVER close this on its own no
+# matter how the status filter is widened — the only fix is an operation that
+# is atomic AT THE STORAGE LAYER, so exactly one of two simultaneous callers
+# wins deterministically.
+#
+# Mechanism: a create-if-absent conditional PUT (`gcloud storage cp
+# --if-generation-match=0`) to a small sentinel blob at
+# gs://deployment-scripts-<project>/vm-launch-locks/<lock_key>.lock — GCS
+# guarantees this is atomic server-side, so of two callers racing to write the
+# SAME object, exactly one succeeds; the other's conditional write fails.
+# This is the SAME sentinel-blob-lock shape
+# unified_trading_library.manifest_consolidator already uses for its own
+# "skip this cron tick if a sibling cycle is in flight" guard (`_LOCK_PATH` /
+# `_is_lock_fresh` / TTL so a crashed holder's lock self-expires rather than
+# jamming every future run forever) — re-implemented bash-native here since
+# this runs inside a launcher script, not the `deployment_service` python
+# package, and TTL-only (no explicit release/delete call — a `gcloud storage
+# rm` is blocked for autonomous workers by
+# agent-orchestrator/scripts/hooks/block_destructive_commands.py regardless,
+# and isn't needed for correctness: a STALE lock is reclaimed atomically via
+# `--if-generation-match=<its own generation>`, the same CAS contract UTL's
+# own `gcs_conditional_put` documents for a non-zero match value).
+#
+# Returns 0 (lock acquired or force=true — nothing further to do, no release
+# call) or 1 (a FRESH lock is already held by another in-flight launch, or the
+# conditional write lost the race — refuse; the caller should exit 1).
+# force="true" bypasses entirely without touching GCS (mirrors every other
+# launcher's --force semantics — an explicit operator override).
+#
+# Example (call once, right before your existing RUNNING-VM singleton check):
+#   lc_acquire_singleton_lock "cefi-fwd-launch" "$PROJECT" 300 "$FORCE" || exit 1
+lc_acquire_singleton_lock() {
+    local lock_key="${1:?lc_acquire_singleton_lock: lock_key required}"
+    local project="${2:?lc_acquire_singleton_lock: project required}"
+    local ttl_seconds="${3:-300}"
+    local force="${4:-false}"
+
+    # bash-3.2 safe lowercase (macOS default bash lacks ${var,,}).
+    local force_lc
+    force_lc="$(printf '%s' "$force" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$force_lc" == "true" ]]; then
+        return 0
+    fi
+
+    local code_bucket lock_uri
+    code_bucket="deployment-scripts-${project}"
+    lock_uri="gs://${code_bucket}/vm-launch-locks/${lock_key}.lock"
+
+    local match_generation existing_gen existing_age
+    match_generation="0"
+    existing_gen="$(gcloud storage objects describe "$lock_uri" --format='value(generation)' 2>/dev/null || true)"
+    if [[ -n "$existing_gen" ]]; then
+        existing_age="$(lc_gcs_object_age_seconds "$lock_uri" 2>/dev/null || true)"
+        if [[ -n "$existing_age" ]] && (( existing_age < ttl_seconds )); then
+            cat >&2 <<EOF
+ERROR: another launch for '${lock_key}' is already in flight (lock ${existing_age}s old, TTL ${ttl_seconds}s): ${lock_uri}
+
+Refusing to launch a duplicate — this is the atomic GCS lock that closes the
+list-then-create TOCTOU race a plain "any VM RUNNING?" singleton check cannot
+close on its own (two near-simultaneous launches can both see "nothing
+running" before either instance reaches RUNNING). See
+plans/active/issues/cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md.
+
+If you are CERTAIN the other launch crashed without releasing its lock (rare
+— the TTL self-clears within ${ttl_seconds}s on its own, usually the right
+move is just to wait), re-run with --force.
+EOF
+            return 1
+        fi
+        # Stale (or age unreadable — fail toward reclaim, not toward a
+        # permanently-jammed launcher) — reclaim atomically against the exact
+        # generation just read; a concurrent reclaimer racing us here loses
+        # THIS conditional write, never silently double-acquires.
+        match_generation="$existing_gen"
+    fi
+
+    local tmp_dir tmp_file
+    tmp_dir="$(mktemp -d)"
+    tmp_file="${tmp_dir}/lock.txt"
+    printf 'held_at=%s\npid=%s\nhost=%s\nlock_key=%s\n' \
+        "$(date -u +%FT%TZ)" "$$" "$(hostname 2>/dev/null || echo unknown)" "$lock_key" >"$tmp_file"
+
+    if ! gcloud storage cp "$tmp_file" "$lock_uri" --if-generation-match="$match_generation" >/dev/null 2>&1; then
+        rm -rf "$tmp_dir"
+        cat >&2 <<EOF
+ERROR: could not acquire the singleton lock for '${lock_key}' (${lock_uri}) —
+a concurrent launcher most likely just won the same race (the INTENDED
+outcome: refuse rather than double-launch). Re-run once any concurrent launch
+has settled, or --force to bypass.
+EOF
+        return 1
+    fi
+    rm -rf "$tmp_dir"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
