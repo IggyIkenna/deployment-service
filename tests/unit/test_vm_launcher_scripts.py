@@ -1946,7 +1946,12 @@ gsutil() {{ return 0; }}
 export -f gsutil
 '''
         script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off", **env},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         return gcloud_log.read_text()
 
@@ -2039,7 +2044,12 @@ gsutil() {{ return 0; }}
 export -f gsutil
 '''
         script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         return gcloud_log.read_text()
 
@@ -2388,7 +2398,12 @@ export -f gcloud
             self._mock_preamble(capture_dir, gcloud_log, shutdown_capture)
             + f'\nbash "{launcher_path}" {" ".join(args)}\n'
         )
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
         return result, capture_dir, gcloud_log, shutdown_capture
 
     def test_launcher_writes_launch_params_with_replayable_scope(self, tmp_path: Path) -> None:
@@ -2604,7 +2619,12 @@ gsutil() {{ return 0; }}
 export -f gsutil
 '''
         script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
-        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        return subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
 
     def test_dry_mode_does_not_apply(self, launcher_path: Path, tmp_path: Path) -> None:
         result = self._run(launcher_path, ["cefi-drop-stale", "2019-03-30", "2026-07-28", "dry"], tmp_path)
@@ -2639,7 +2659,7 @@ export -f gsutil
             ["bash", "-c", script],
             capture_output=True,
             text=True,
-            env={**os.environ, "MIGRATION_EXTRA_ARGS": "--also-legacy"},
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off", "MIGRATION_EXTRA_ARGS": "--also-legacy"},
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert "--also-legacy" in result.stdout

@@ -784,7 +784,7 @@ lc_verify_tarball_freshness() {
 
     # bash-3.2 safe lowercase.
     local mode
-    mode="$(printf '%s' "${LC_TARBALL_FRESHNESS:-warn}" | tr '[:upper:]' '[:lower:]')"
+    mode="$(printf '%s' "${LC_TARBALL_FRESHNESS:-auto}" | tr '[:upper:]' '[:lower:]')"
     if [[ "$mode" == "off" ]]; then
         return 0
     fi
