@@ -801,6 +801,94 @@ class TestNewPrefixRegistration:
                 assert spec is None, f"{prefix!r}: must be None (heartbeat-only)"
 
 
+# ── Richer-signal ("shard-mtime") coverage for real manifest-shard writers (2026-08-06) ──
+#
+# Bug class this closes: a launcher whose VM writes a real per-VM manifest shard
+# (ManifestWriter(per_vm_shards=True), exact `_index/per_vm/{vm_name}.parquet`
+# filename) but whose VM_PREFIX_TO_BUCKET entry is bucket=None (or absent, falling
+# through to a generic bucket=None catch-all) only gets the heartbeat liveness
+# signal — never the shard-staleness check that catches "VM alive + heartbeating,
+# but writing NOTHING at all" (the exact 2026-07-18 sports-fixtures incident this
+# module's own docstring documents: 3.5h, zero rows written, heartbeat never
+# lapsed). This class of gap was found live 2026-08-06
+# (vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md) for 3 launcher families
+# that were verified (via source read of the underlying Python entrypoint) to
+# write the watchdog-pollable exact shard filename into a single deterministic
+# per-asset_group bucket, yet were mis-registered as heartbeat-only.
+class TestManifestShardWriterBucketCoverage:
+    """Confirmed real-manifest-shard-writer prefixes must carry a real bucket.
+
+    Each prefix here was verified by reading the launcher's own bucket-resolution
+    code (not the launcher's comments alone) to confirm: (a) the underlying script
+    uses ManifestWriter(per_vm_shards=True) / writes the exact
+    `_index/per_vm/{vm_name}.parquet` blob (not a chunked "-part{N}" variant, which
+    the watchdog's exact-path check can never observe — see the deliberately-
+    NOT-fixed `expected-universe-v2-` entry, still bucket=None for this reason),
+    and (b) the target bucket is statically deterministic from the VM name
+    (a fixed literal or a resolve_bucket_name(kind=..., asset_group=<embedded-ag>)
+    call matching this file's own _TICK_*/_INSTR_*/_FEAT_* constants).
+    """
+
+    # prefix -> the exact bucket constant this file resolves for it (module-level name).
+    _EXPECTED_REAL_BUCKET_PREFIXES: dict[str, str] = {
+        "features-sfi-progressive-": "_FEAT_SPORTS",
+        "manifest-recon-apply-cefi-": "_TICK_CEFI",
+        "manifest-recon-apply-defi-": "_TICK_DEFI",
+        "manifest-recon-apply-tradfi-": "_TICK_TRADFI",
+        "blank-reason-recon-cefi-": "_TICK_CEFI",
+        "blank-reason-recon-defi-": "_TICK_DEFI",
+        "blank-reason-recon-tradfi-": "_TICK_TRADFI",
+        "blank-reason-recon-sports-": "_INSTR_SPORTS",
+        "blank-reason-recon-prediction-": "_TICK_PRED",
+    }
+
+    def test_all_expected_prefixes_are_registered(self) -> None:
+        missing = [p for p in self._EXPECTED_REAL_BUCKET_PREFIXES if p not in _VM_PREFIX_TO_BUCKET]
+        assert not missing, f"Expected real-bucket prefixes missing from VM_PREFIX_TO_BUCKET entirely: {missing}"
+
+    def test_all_expected_prefixes_have_a_non_none_bucket(self) -> None:
+        """Regression guard: none of these may ever silently revert to heartbeat-only."""
+        heartbeat_only: list[str] = []
+        for prefix in self._EXPECTED_REAL_BUCKET_PREFIXES:
+            spec = _VM_PREFIX_TO_BUCKET.get(prefix)
+            if not isinstance(spec, _VmPrefixSpec) or spec.bucket is None:
+                heartbeat_only.append(prefix)
+        assert not heartbeat_only, (
+            "These confirmed real-manifest-shard-writer prefixes regressed to "
+            "heartbeat-only (bucket=None) — the shard-staleness check silently stops "
+            "catching zero-write failures for them:\n" + "\n".join(heartbeat_only)
+        )
+
+    def test_sibling_prefixes_are_not_shadowed_by_the_new_longer_ones(self) -> None:
+        """The generic read-only siblings must still resolve independently.
+
+        `manifest-recon-cefi-...` (dry-run, no --apply-flips) must still hit the
+        SHORTER `manifest-recon-` catch-all (bucket=None, correct — it never writes),
+        not the new `manifest-recon-apply-cefi-` entry (different literal, does not
+        collide) — and `blank-reason-recon-` un-suffixed names still resolve to the
+        generic entry when no per-AG match applies.
+        """
+        prefixes = tuple(_VM_PREFIX_TO_BUCKET.keys())
+        dry_run_name = "manifest-recon-cefi-20260806-000000"
+        matched = max((p for p in prefixes if dry_run_name.startswith(p)), key=len)
+        assert matched == "manifest-recon-", f"expected the read-only catch-all, got {matched!r}"
+        assert _VM_PREFIX_TO_BUCKET[matched] is None
+
+    def test_asset_group_buckets_match_the_shared_tick_constants(self) -> None:
+        """Each per-AG entry's bucket must match the SAME constant other per-AG
+        launchers in this registry use for that asset_group (e.g. canonical-migration-{ag}-,
+        datapoint-validation-{ag}-) — never a hand-typed duplicate literal."""
+        from deployment_service import vm_prefix_registry as _registry_mod
+
+        for prefix, const_name in self._EXPECTED_REAL_BUCKET_PREFIXES.items():
+            spec = _VM_PREFIX_TO_BUCKET[prefix]
+            assert isinstance(spec, _VmPrefixSpec)
+            expected_bucket = getattr(_registry_mod, const_name)
+            assert spec.bucket == expected_bucket, (
+                f"{prefix!r}: bucket {spec.bucket!r} does not match {const_name}={expected_bucket!r}"
+            )
+
+
 # ── Lifecycle class completeness (S9) ────────────────────────────────────────
 
 

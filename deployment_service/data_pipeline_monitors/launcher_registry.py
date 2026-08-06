@@ -92,6 +92,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "instr-backfill-pred": "launch-instruments-backfill-vm.sh",
     # ── features-sports parallel backfill ─────────────────────────────────
     "fss-backfill-vm-": "launch-features-sports-parallel-backfill-vm.sh",
+    # SFI-progressive features backfill — vm_prefix_registry.py parity
+    # (2026-08-06 vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md). SPOT +
+    # --force/presence-skip idempotent, so a preempted VM safely resumes.
+    "features-sfi-progressive-": "launch-sfi-progressive-features-backfill-vm.sh",
     # ── Sports instruments-reference v3 backfill ──────────────────────────
     "sports-ref-v3-": "launch-sports-instruments-reference-vm.sh",
     # ── Sports forward-polls ──────────────────────────────────────────────
@@ -222,6 +226,14 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # ── Read-only reconciliation / audit VMs (never a relaunch target) ────
     "defi-phantom-recon-": None,  # read-only phantom audit
     "manifest-recon-": None,  # read-only all-reconciler dry-run
+    # Manifest recon APPLY — real write variant of the dry-run above, its own
+    # dedicated launcher (--asset-group scoped, cefi/defi/tradfi only). Idempotent
+    # re-verification (re-scans current manifest state, only flips rows still
+    # mismatched), so a SPOT preemption relaunch safely resumes. vm_prefix_registry.py
+    # parity (2026-08-06 vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md).
+    "manifest-recon-apply-cefi-": "launch-manifest-recon-apply-vm.sh",
+    "manifest-recon-apply-defi-": "launch-manifest-recon-apply-vm.sh",
+    "manifest-recon-apply-tradfi-": "launch-manifest-recon-apply-vm.sh",
     # Tier-2 per-datapoint id+schema validation (VM_PREFIX_TO_BUCKET parity, todo 31/32).
     # SPOT + presence-skip idempotent → auto-relaunchable: a preempted VM resumes the
     # SAME (asset_group, campaign) from measured progress (LAUNCH_PARAMS.json), the
@@ -286,6 +298,15 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "datapoint-validation-": None,  # per-AG validation pipeline — no single-VM relaunch target
     "cefi-onchain-fwd-": None,  # onchain forward daily cron — scheduler-owned, no dedicated launcher
     "blank-reason-recon-": "launch-blank-reason-recon-vm.sh",
+    # Per-AG entries — vm_prefix_registry.py parity (real bucket coverage added
+    # 2026-08-06, vm_zombie_watchdog_prefix_coverage_gap_2026_08_06.md). Same
+    # launcher as the generic entry above (--asset-group scoped); idempotent
+    # reclassification scan, safe SPOT-preemption relaunch.
+    "blank-reason-recon-cefi-": "launch-blank-reason-recon-vm.sh",
+    "blank-reason-recon-defi-": "launch-blank-reason-recon-vm.sh",
+    "blank-reason-recon-tradfi-": "launch-blank-reason-recon-vm.sh",
+    "blank-reason-recon-sports-": "launch-blank-reason-recon-vm.sh",
+    "blank-reason-recon-prediction-": "launch-blank-reason-recon-vm.sh",
     # ── Options-chain / CME-events backfills ──────────────────────────────
     "opt-deribit-": "launch-targeted-options-chain-backfill.sh",
     # Deribit BTC/ETH options_chain daily forward-snapshot (live/replay handler);
