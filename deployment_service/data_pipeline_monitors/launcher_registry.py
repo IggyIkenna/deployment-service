@@ -276,6 +276,9 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # own day-level checkpoint makes a SPOT preemption relaunch resume from
     # measured progress rather than restart-from-scratch.
     "backfill-defi-dex-swaps-": "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+    # Legacy dex_pools/dex_swaps/rate_indices data_type fold (copy-not-move + per-VM
+    # sharded record_captured) — resume-log-driven, safe to relaunch after preemption.
+    "backfill-defi-legacy-datatype-fold-": "launch-backfill-defi-legacy-datatype-fold-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
