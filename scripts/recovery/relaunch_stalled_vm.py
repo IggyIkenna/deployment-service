@@ -215,7 +215,7 @@ class RelaunchStalledVm:
 
         # ── Progress-checkpoint resume (mirrors RelaunchPreemptedVm) ─────────
         env = dict(launch_env or {})
-        force = str(env.get("VM_FORCE", "")).strip().lower() == "true"
+        force = str(env.get("VM_FORCE", "")).strip().lower() == "true"  # noqa: qg-empty-fallback — absent flag correctly parses as falsy (not "true")
         resume_date = ""
         if checkpoint is not None:
             monotonic = str(checkpoint.get("monotonic", "false")).strip().lower() == "true"

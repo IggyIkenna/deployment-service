@@ -611,7 +611,7 @@ class ClusterOrchestrator:
                     "service_name": service_name,
                     "pid": process.pid,
                     "mode": mode,
-                    "isolation": env_overrides.get("ISOLATION_POLICY", ""),
+                    "isolation": env_overrides.get("ISOLATION_POLICY", ""),  # noqa: qg-empty-fallback — log-detail field only, absent isolation policy is a valid "none set" state
                 },
                 client_id=env_overrides.get("CLIENT_ID") or None,
             )

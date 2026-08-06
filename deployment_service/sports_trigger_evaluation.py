@@ -84,7 +84,7 @@ def evaluate_pre_match_triggers(
         if not isinstance(trigger, dict):
             continue
 
-        name = str(trigger.get("name", ""))
+        name = str(trigger.get("name", ""))  # noqa: qg-empty-fallback — this function already defaults every trigger field permissively (offset_hours/tolerance_minutes below); a missing name is a config-authoring gap, not a silent data-correctness masking
         offset_hours = float(trigger.get("offset_hours", 0))
         tolerance_minutes = int(trigger.get("tolerance_minutes", 30))
 
@@ -164,7 +164,7 @@ def evaluate_post_match_triggers(
             continue
         trigger = cast("dict[str, object]", trigger_raw)
 
-        name = str(trigger.get("name", ""))
+        name = str(trigger.get("name", ""))  # noqa: qg-empty-fallback — this function already defaults every trigger field permissively (offset_minutes/offset_hours/tolerance_minutes below); a missing name is a config-authoring gap, not a silent data-correctness masking
         # Post-match offsets can be minutes or hours
         offset_minutes = int(trigger.get("offset_minutes", 0))
         offset_hours = int(trigger.get("offset_hours", 0))
