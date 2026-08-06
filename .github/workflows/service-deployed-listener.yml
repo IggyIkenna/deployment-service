@@ -1,0 +1,104 @@
+name: service-deployed listener
+
+# Listens for the `service-deployed` repository_dispatch that every service's
+# cloudbuild.yaml / buildspec.aws.yaml `notify-deployment` step fires once a new
+# image is built + pushed. Until this workflow existed, NOTHING in this repo
+# listened — a `repository_dispatch` POST returns 204 whether or not anyone's
+# subscribed, so a successful build never became a live Cloud Run redeploy
+# (caught statically by
+# unified-trading-pm/scripts/quality_gates/check_dispatch_listeners.py; real
+# example: alerting-service built 2026-08-04, dp-alerting-subscriber's Cloud Run
+# revision stayed on 2026-07-28 for 9+ days).
+#
+# Payload shape (from every cloudbuild.yaml `notify-deployment` step):
+#   {"event_type": "service-deployed",
+#    "client_payload": {"service_name": ..., "version": ..., "image": ...}}
+#
+# SAFETY MODEL — default-deny, NOT "deploy anything that dispatches" (operator
+# ruling 2026-08-06: pre-live-cutover, "focusing on data and quality, not live
+# trading yet"). The real gate is an explicit allowlist in
+# deployment_service/auto_deploy_allowlist.py — a service_name not on it is a
+# clean, logged no-op (see scripts/cicd/handle_service_deployed_dispatch.py).
+# This workflow itself does no filtering; it hands every dispatch to that script
+# and trusts the allowlist.
+#
+# Reuses deployment-api's existing manual-deploy endpoint
+# (POST /api/deployments/{service}/deploy, the same one the deployment-ui Deploy
+# console calls) rather than reimplementing `gcloud run deploy` here.
+
+on:
+  repository_dispatch:
+    types: [service-deployed]
+
+permissions:
+  contents: read
+  id-token: write # google-github-actions/auth (mirrors cloud-run-traffic-drift-check.yml)
+
+concurrency:
+  # Serialize per dispatched service — two dispatches for the same service
+  # racing a deploy call is the only scenario worth serializing against; two
+  # different services' dispatches should proceed concurrently.
+  group: service-deployed-listener-${{ github.event.client_payload.service_name || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  handle-dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout deployment-service
+        uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Discover deployment-api URL
+        id: discover
+        env:
+          GCP_PROJECT: ${{ vars.GCP_PROJECT_ID || 'central-element-323112' }}
+          REGION: asia-northeast1
+        run: |
+          set -euo pipefail
+          URL=$(gcloud run services describe uts-shared-deployment-api \
+            --project="$GCP_PROJECT" \
+            --region="$REGION" \
+            --format="value(status.url)")
+          if [ -z "$URL" ]; then
+            echo "ERROR: could not discover uts-shared-deployment-api URL" >&2
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Install deployment_service package (editable, for the allowlist import)
+        run: pip install --quiet -e .
+
+      - name: Handle service-deployed dispatch
+        env:
+          SERVICE_NAME: ${{ github.event.client_payload.service_name }}
+          VERSION: ${{ github.event.client_payload.version }}
+          IMAGE: ${{ github.event.client_payload.image }}
+          API_BASE_URL: ${{ steps.discover.outputs.url }}
+          # DEPLOYMENT_API_KEY is unset today because uts-shared-deployment-api
+          # currently runs with DISABLE_AUTH=true in prod (a separate, already
+          # flagged issue — see
+          # unified-trading-pm/plans/active/issues/post_cutover_silent_assumption_sweep_2026_07_23.md
+          # Progress Log). The script treats an empty key as "omit the header"
+          # so this call works today and picks up real auth the moment that
+          # gap is closed and this secret is populated — no code change needed.
+          DEPLOYMENT_API_KEY: ${{ secrets.DEPLOYMENT_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SERVICE_NAME:-}" ] || [ -z "${VERSION:-}" ]; then
+            echo "ERROR: dispatch payload missing service_name or version" >&2
+            exit 1
+          fi
+          ARGS=(--service-name "$SERVICE_NAME" --version "$VERSION" --image "${IMAGE:-}" --api-base-url "$API_BASE_URL")
+          if [ -n "${DEPLOYMENT_API_KEY:-}" ]; then
+            ARGS+=(--api-key "$DEPLOYMENT_API_KEY")
+          fi
+          python3 scripts/cicd/handle_service_deployed_dispatch.py "${ARGS[@]}"
