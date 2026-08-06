@@ -46,6 +46,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 ASSET_GROUP=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
+# Shards consolidated per worker process (operator-ruled 2026-08-06, option (i)).
+# Default 10 balances process count vs per-process RSS — override per asset_group:
+#   MDPS_SHARDS_PER_WORKER=50 bash launch-mdps-features-live.sh --asset-group defi
+MDPS_SHARDS_PER_WORKER="${MDPS_SHARDS_PER_WORKER:-10}"
 
 DRY_RUN=false
 
@@ -127,6 +131,7 @@ METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP^^}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+METADATA="${METADATA},MDPS_SHARDS_PER_WORKER=${MDPS_SHARDS_PER_WORKER}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=false"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
