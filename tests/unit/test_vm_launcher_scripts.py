@@ -3220,10 +3220,18 @@ class TestChunkedBranchesScopeVmNamePerChunk:
         return content[start:end]
 
     def test_mtds_chunk_loop_scopes_vm_name_per_chunk(self) -> None:
+        # LEAGUE_SUFFIX addition (sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md):
+        # an unscoped sports odds_api backfill now fans out per-league (a separate OOM fix
+        # -- OddsApiAdapter._fetch_all_leagues accumulating all ~30 leagues' rows into one
+        # in-memory list before writing) -- VM_NAME is ALSO scoped per-league so each
+        # league's per-VM manifest shard doesn't collide with its siblings within the same
+        # chunk. Preserves (as a literal substring) the original per-chunk scoping this
+        # test verifies; LEAGUE_SUFFIX resolves to "" at runtime for every non-fanned-out
+        # case, making this byte-identical in practice to the pre-fan-out behavior.
         body = self._chunk_loop_body(self._script_text(), chunk_script_var="mtds_chunk_loop.sh")
         invoke = body.index("-m market_tick_data_service")
-        preceding = body[max(0, invoke - 120) : invoke]
-        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding, (
+        preceding = body[max(0, invoke - 150) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}\\${LEAGUE_SUFFIX}"' in preceding, (
             "mtds_chunk_loop.sh's market_tick_data_service invocation must scope VM_NAME "
             "per chunk (else every chunk across the whole multi-chunk backfill accumulates "
             "into one ever-growing per-VM manifest shard — the confirmed OOM root cause)"
@@ -3598,9 +3606,15 @@ class TestChunkLoopPartialPayloadLossGating:
         end_date: str,
         chunk_days: int,
         chunk_outcomes: list,
+        sports_league_csv: str = "",
     ) -> str:
         """chunk_outcomes: list of (results_collected, exit_code) tuples, one per expected
-        chunk, in date order. Returns the generated chunk-loop script's captured stdout."""
+        chunk (or, when sports_league_csv is set, one per league within a chunk, in the
+        league-list order), in date order. Returns the generated chunk-loop script's
+        captured stdout. sports_league_csv mirrors the real setup script's
+        _SPORTS_LEAGUE_CSV generation-time variable (sports_mtds_backfill_vm_unscoped_
+        fetch_oom_2026_08_06.md's per-league fan-out) — omitted/empty reproduces the
+        original unscoped single-invocation-per-chunk behavior exactly."""
         body = self._heredoc_body(setup_script_path, generator)
         venv_dir = tmp_path / "venv"
         state_file = tmp_path / "outcomes.txt"
@@ -3611,20 +3625,19 @@ class TestChunkLoopPartialPayloadLossGating:
         # $VENV/$BASE_CLI/$VM_START_DATE/$VM_END_DATE/$VM_CHUNK_DAYS are substituted NOW (at
         # generation time), while every `\$` in the body stays a literal `$` for the chunk
         # script to evaluate later -- unquoted `<<SENTINEL` gives identical semantics.
-        generator_script = "\n".join(
-            [
-                "#!/usr/bin/env bash",
-                "set -uo pipefail",
-                f'VENV="{venv_dir}"',
-                'BASE_CLI="--operation download --mode batch --asset-group test"',
-                f'VM_START_DATE="{start_date}"',
-                f'VM_END_DATE="{end_date}"',
-                f'VM_CHUNK_DAYS="{chunk_days}"',
-                "cat <<CHUNK_LOOP_TEST_SENTINEL",
-                body,
-                "CHUNK_LOOP_TEST_SENTINEL",
-            ]
-        )
+        generator_lines = [
+            "#!/usr/bin/env bash",
+            "set -uo pipefail",
+            f'VENV="{venv_dir}"',
+            'BASE_CLI="--operation download --mode batch --asset-group test"',
+            f'VM_START_DATE="{start_date}"',
+            f'VM_END_DATE="{end_date}"',
+            f'VM_CHUNK_DAYS="{chunk_days}"',
+        ]
+        if sports_league_csv:
+            generator_lines.append(f'_SPORTS_LEAGUE_CSV="{sports_league_csv}"')
+        generator_lines += ["cat <<CHUNK_LOOP_TEST_SENTINEL", body, "CHUNK_LOOP_TEST_SENTINEL"]
+        generator_script = "\n".join(generator_lines)
         gen_result = subprocess.run(["bash", "-c", generator_script], capture_output=True, text=True)
         assert gen_result.returncode == 0, f"heredoc generation failed: {gen_result.stderr}"
 
@@ -3678,6 +3691,86 @@ class TestChunkLoopPartialPayloadLossGating:
         out = self._run_chunk_loop(setup_script_path, tmp_path, generator, "2020-01-01", "2020-01-07", 7, [(0, 1)])
         assert "reason=NONZERO_EXIT" in out
         assert "[[VM_PROGRESS]]" not in out
+
+
+class TestMtdsSportsPerLeagueFanOut:
+    """sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md: an unscoped sports odds_api
+    backfill (no --league) iterates ALL ~30 Prediction-tier leagues in ONE Python process,
+    accumulating every league's rows into a single in-memory list before writing
+    (OddsApiAdapter._fetch_all_leagues) -- confirmed OOM on a SPOT VM with no memory cap
+    (RSS 4.6->30.7GiB in ~4min). Mirrors the already-validated --league scoping fix used
+    on the live dispatch path (deployment-service@4e0e03d) instead of touching the
+    adapter's accumulation internals (a prior investigation explicitly judged that deeper
+    streaming-write refactor too risky for a live P0). Reuses
+    TestChunkLoopPartialPayloadLossGating's real-heredoc-extraction + stub-CLI harness so
+    this can't silently drift from the shipped mtds_chunk_loop.sh.
+    """
+
+    SETUP_SCRIPT = TestChunkLoopPartialPayloadLossGating.SETUP_SCRIPT
+    GENERATORS = TestChunkLoopPartialPayloadLossGating.GENERATORS
+    _heredoc_body = TestChunkLoopPartialPayloadLossGating._heredoc_body
+    _write_stub_python = TestChunkLoopPartialPayloadLossGating._write_stub_python
+    _run_chunk_loop = TestChunkLoopPartialPayloadLossGating._run_chunk_loop
+    setup_script_path = TestChunkLoopPartialPayloadLossGating.setup_script_path
+
+    def test_unscoped_run_makes_exactly_one_invocation_with_no_league_flag(
+        self, setup_script_path: Path, tmp_path: Path
+    ) -> None:
+        """No _SPORTS_LEAGUE_CSV (the default/every-non-sports-launcher case) must reproduce
+        the pre-fan-out behavior byte-for-byte: one CLI call per chunk, no --league."""
+        out = self._run_chunk_loop(setup_script_path, tmp_path, "mtds", "2020-01-01", "2020-01-07", 7, [(7, 0)])
+        assert out.count("Batch complete:") == 1
+        assert "--league" not in out
+        assert "[[VM_PROGRESS]] last_completed_date=2020-01-07 monotonic=true" in out
+
+    def test_fanned_out_run_invokes_once_per_league_with_league_flag(
+        self, setup_script_path: Path, tmp_path: Path
+    ) -> None:
+        """A populated _SPORTS_LEAGUE_CSV must produce one CLI invocation PER LEAGUE, each
+        scoped with --league <that league> -- the actual memory-bounding mechanism (each
+        invocation is a fresh process handling one league's rows, not all ~30 at once)."""
+        out = self._run_chunk_loop(
+            setup_script_path,
+            tmp_path,
+            "mtds",
+            "2020-01-01",
+            "2020-01-07",
+            7,
+            [(7, 0), (7, 0), (7, 0)],
+            sports_league_csv="EPL,LA_LIGA,BUNDESLIGA",
+        )
+        assert out.count("Batch complete:") == 3
+        for league in ("EPL", "LA_LIGA", "BUNDESLIGA"):
+            assert f"league={league}:" in out, f"expected a per-league log line for {league}"
+        assert "[[VM_PROGRESS]] last_completed_date=2020-01-07 monotonic=true" in out
+
+    def test_one_league_oom_does_not_block_its_siblings_but_suppresses_the_checkpoint(
+        self, setup_script_path: Path, tmp_path: Path
+    ) -> None:
+        """Shard-level failure isolation: one league OOM-ing (exit=137) must not prevent the
+        OTHER leagues in the same chunk from being attempted (a bad league must not silently
+        wedge the whole chunk) -- but the chunk's PROGRESS checkpoint must still be
+        suppressed (a preemption-relaunch must not skip the OOM'd league's unwritten gap)."""
+        out = self._run_chunk_loop(
+            setup_script_path,
+            tmp_path,
+            "mtds",
+            "2020-01-01",
+            "2020-01-07",
+            7,
+            [(7, 0), (0, 137), (7, 0)],
+            sports_league_csv="EPL,LA_LIGA,BUNDESLIGA",
+        )
+        assert out.count("Batch complete:") == 3, "all 3 leagues must still be attempted despite one OOM"
+        assert "league=LA_LIGA" in out and "reason=OOM_KILLED" in out
+        assert "[[VM_PROGRESS]]" not in out
+
+    def test_per_league_vm_name_suffix_present_in_invocation(self, setup_script_path: Path, tmp_path: Path) -> None:
+        """Each league's per-VM manifest shard must get its own filename (VM_NAME suffixed
+        with the league) so siblings within the same chunk don't overwrite each other."""
+        body = self._heredoc_body(setup_script_path, "mtds")
+        assert 'LEAGUE_SUFFIX="-\\${LEAGUE}"' in body
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}\\${LEAGUE_SUFFIX}"' in body
 
 
 if __name__ == "__main__":

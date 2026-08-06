@@ -1744,10 +1744,52 @@ print('true' if '${VM_VENUE^^}' in ONCHAIN_PERP_VENUE_CHAIN else 'false')
   VM_BATCH_DATE_CONCURRENCY=$(_meta VM_BATCH_DATE_CONCURRENCY)
   [[ -n "$VM_BATCH_DATE_CONCURRENCY" ]] && BASE_CLI="$BASE_CLI --batch-date-concurrency $VM_BATCH_DATE_CONCURRENCY"
 
+  # SPORTS unscoped odds_api per-league fan-out
+  # (sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md): an unscoped (no
+  # --league) sports MTDS backfill iterates ALL ~30 Prediction-tier leagues in ONE
+  # Python process, accumulating every league's rows into a single in-memory
+  # all_rows list before writing (OddsApiAdapter._fetch_all_leagues,
+  # market-tick-data-service) — confirmed OOM (exit=137, RSS 4.6->30.7GiB in ~4min)
+  # on a SPOT VM with no memory cap (unlike the live Cloud Run Job's 16Gi stop-gap).
+  # The already-validated fix for the LIVE dispatch path (deployment-service@4e0e03d)
+  # scopes via --league — mirror that here rather than touch the adapter's
+  # accumulation internals (a prior investigation, sports_fast_t1_recon_oom_live_
+  # capture_outage_2026_08_01.md, explicitly judged a deeper streaming-write refactor
+  # too risky for a live P0: a wrong league-id-format assumption could convert a
+  # loud, honest OOM failure into a silent zero-row false-success). Discover the
+  # live Prediction-tier league list and fan the chunk loop out to one subprocess
+  # PER LEAGUE (each bounded to ~1/30th the memory of the unscoped call, and each a
+  # fresh process so nothing carries over between leagues) instead of one process
+  # for all leagues at once. Activates ONLY when VM_ASSET_GROUP=sports AND VM_VENUE
+  # is empty (odds_api auto-routes, no venue override) AND VM_LEAGUE is empty (an
+  # explicit --league already scopes safely) — every other launcher/asset_group/
+  # venue/an explicitly-scoped sports run is untouched (LEAGUES_CSV stays empty,
+  # the loop below runs exactly once with no --league, byte-identical to before).
+  _SPORTS_LEAGUE_CSV=""
+  if [[ "$_AG_LOWER_MTDS" == "sports" && -z "$VM_VENUE" && -z "$VM_LEAGUE" ]]; then
+    _SPORTS_LEAGUE_CSV=$("$VENV/bin/python" -c "
+from unified_api_contracts.sports import DEFAULT_CLASSIFICATION_REGISTRY, get_league_by_api_football_id
+ids = []
+for lg in DEFAULT_CLASSIFICATION_REGISTRY.get_prediction_leagues():
+    if not lg.odds_api_name:
+        continue
+    resolved = get_league_by_api_football_id(lg.league_id) if isinstance(lg.league_id, int) else None
+    canonical = str(getattr(resolved, 'league_id', '')) if resolved is not None else ''
+    ids.append(canonical or lg.name.upper().replace(' ', '_'))
+print(','.join(ids))
+" 2>/dev/null || echo "")
+    if [[ -n "$_SPORTS_LEAGUE_CSV" ]]; then
+      log "mtds-backfill: unscoped sports odds fetch detected — fanning out to per-league invocations ($(echo "$_SPORTS_LEAGUE_CSV" | tr ',' '\n' | wc -l | tr -d ' ') leagues) to bound memory per-process, see sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md"
+    else
+      log "mtds-backfill: sports per-league fan-out discovery failed or returned empty — falling back to the original unscoped single-process call (may OOM on a wide window, see sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md)"
+    fi
+  fi
+
   CHUNK_SCRIPT="$WORKSPACE/mtds_chunk_loop.sh"
   cat >"$CHUNK_SCRIPT" <<MTDS_CHUNK_LOOP_EOF
 #!/usr/bin/env bash
 set -uo pipefail
+LEAGUES_CSV="${_SPORTS_LEAGUE_CSV:-}"
 CHUNKS=\$("$VENV/bin/python" -c "
 from datetime import datetime, timedelta
 start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
@@ -1761,55 +1803,71 @@ while cur <= end:
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
 CHUNK_NUM=0
-# Tracks whether any EARLIER chunk in this run failed — gates the checkpoint below so
-# a later chunk's success can never paper over an earlier gap (see the checkpoint
-# comment further down for why this matters).
+# Tracks whether any EARLIER chunk (or, for the per-league fan-out, any earlier
+# league within the current chunk) failed — gates the checkpoint below so a later
+# chunk's success can never paper over an earlier gap (see the checkpoint comment
+# further down for why this matters).
 HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  # Per-chunk VM_NAME suffix (subprocess-scoped only — the outer VM_NAME the
-  # tee-wrapper/heartbeat use for vm-logs/PROGRESS.json is untouched) bounds
-  # unified-trading-library ManifestWriter's per-VM shard
-  # (_index/per_vm/{VM_NAME}.parquet) to just THIS chunk's rows instead of
-  # accumulating the whole multi-chunk backfill into one ever-growing shard —
-  # the same OOM root cause + fix already applied to instruments_chunk_loop.sh
-  # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
-  # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
-  # Output is ALSO teed to a scratch file (stdout still flows through unchanged for the
-  # outer tee/watchdog) so the partial-payload check below can grep the CLI's own
-  # "Batch complete: N results collected" line; PIPESTATUS[0] preserves the real
-  # subprocess exit code through the pipe.
-  CHUNK_OUT=\$(mktemp)
-  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
-    "$VENV/bin/python" -m market_tick_data_service \\
-      $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$CHUNK_OUT"
-  CHUNK_RC=\${PIPESTATUS[0]}
-  # Partial-payload-loss detection
-  # (mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md): a chunk where
-  # SOME date-payloads fail and SOME succeed still exits 0 (the CLI's batch driver only
-  # returns non-zero when EVERY payload in the batch failed), so CHUNK_RC alone can't see
-  # a partial gap. Compare the CLI's own results-collected count against this chunk's
-  # expected day-count and treat a shortfall the same as CHUNK_RC!=0 below.
-  RESULTS_COLLECTED=\$(grep -oE 'Batch complete: [0-9]+ results collected' "\$CHUNK_OUT" | tail -1 | grep -oE '[0-9]+' || true)
-  rm -f "\$CHUNK_OUT"
-  # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
-  # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
-  # exit left no log signal at all beyond staleness, see
-  # mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md). Log a clear, greppable
-  # marker either way and CONTINUE to the next chunk (shard-level failure isolation —
-  # one bad chunk must not silently wedge the whole multi-chunk run).
-  if [[ \$CHUNK_RC -eq 137 ]]; then
-    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    HAD_FAILURE=1
-  elif [[ \$CHUNK_RC -ne 0 ]]; then
-    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    HAD_FAILURE=1
-  elif [[ -n "\$RESULTS_COLLECTED" && \$RESULTS_COLLECTED -lt \$EXPECTED_DAYS ]]; then
-    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=0 reason=PARTIAL_PAYLOAD_LOSS results_collected=\${RESULTS_COLLECTED} expected=\${EXPECTED_DAYS} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    HAD_FAILURE=1
+  if [[ -n "\$LEAGUES_CSV" ]]; then
+    IFS=',' read -ra CHUNK_LEAGUES <<< "\$LEAGUES_CSV"
+  else
+    CHUNK_LEAGUES=("")
   fi
+  for LEAGUE in "\${CHUNK_LEAGUES[@]}"; do
+    LEAGUE_SUFFIX=""
+    LEAGUE_FLAG=()
+    if [[ -n "\$LEAGUE" ]]; then
+      LEAGUE_SUFFIX="-\${LEAGUE}"
+      LEAGUE_FLAG=(--league "\$LEAGUE")
+      echo "--- Chunk \${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE}: \${CS} → \${CE} ---"
+    fi
+    # Per-chunk (+ per-league, when fanned out) VM_NAME suffix (subprocess-scoped
+    # only — the outer VM_NAME the tee-wrapper/heartbeat use for
+    # vm-logs/PROGRESS.json is untouched) bounds unified-trading-library
+    # ManifestWriter's per-VM shard (_index/per_vm/{VM_NAME}.parquet) to just THIS
+    # chunk's (+ league's) rows instead of accumulating the whole multi-chunk
+    # backfill into one ever-growing shard — the same OOM root cause + fix already
+    # applied to instruments_chunk_loop.sh
+    # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
+    # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
+    # Output is ALSO teed to a scratch file (stdout still flows through unchanged for the
+    # outer tee/watchdog) so the partial-payload check below can grep the CLI's own
+    # "Batch complete: N results collected" line; PIPESTATUS[0] preserves the real
+    # subprocess exit code through the pipe.
+    CHUNK_OUT=\$(mktemp)
+    VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}\${LEAGUE_SUFFIX}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+      "$VENV/bin/python" -m market_tick_data_service \\
+        $BASE_CLI "\${LEAGUE_FLAG[@]}" \\
+        --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$CHUNK_OUT"
+    CHUNK_RC=\${PIPESTATUS[0]}
+    # Partial-payload-loss detection
+    # (mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md): a chunk where
+    # SOME date-payloads fail and SOME succeed still exits 0 (the CLI's batch driver only
+    # returns non-zero when EVERY payload in the batch failed), so CHUNK_RC alone can't see
+    # a partial gap. Compare the CLI's own results-collected count against this chunk's
+    # expected day-count and treat a shortfall the same as CHUNK_RC!=0 below.
+    RESULTS_COLLECTED=\$(grep -oE 'Batch complete: [0-9]+ results collected' "\$CHUNK_OUT" | tail -1 | grep -oE '[0-9]+' || true)
+    rm -f "\$CHUNK_OUT"
+    # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
+    # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
+    # exit left no log signal at all beyond staleness, see
+    # mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md). Log a clear, greppable
+    # marker either way and CONTINUE to the next league/chunk (shard-level failure
+    # isolation — one bad league/chunk must not silently wedge the whole run).
+    if [[ \$CHUNK_RC -eq 137 ]]; then
+      echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE:-ALL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      HAD_FAILURE=1
+    elif [[ \$CHUNK_RC -ne 0 ]]; then
+      echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE:-ALL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      HAD_FAILURE=1
+    elif [[ -n "\$RESULTS_COLLECTED" && \$RESULTS_COLLECTED -lt \$EXPECTED_DAYS ]]; then
+      echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE:-ALL} range=\${CS}→\${CE} exit=0 reason=PARTIAL_PAYLOAD_LOSS results_collected=\${RESULTS_COLLECTED} expected=\${EXPECTED_DAYS} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      HAD_FAILURE=1
+    fi
+  done
   # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
   # P2 "no-checkpoint launcher families"): this generic download branch aggregates rows
   # via PartitionedGroupWriter.record_captured_from_counts, which does NOT thread through
@@ -1817,11 +1875,13 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
   # per-row record_captured path does), so this shell chunk-loop was silently emitting NO
   # PROGRESS.json checkpoint. Emit the marker at THIS granularity instead — the
   # vm-exec-with-gcs-tee.sh watchdog greps stdout for it regardless of which layer wrote
-  # it. Gated on BOTH this chunk succeeding AND no EARLIER chunk having failed: chunks
-  # are processed in date order but a later chunk can still complete after an earlier one
-  # failed (shard-level isolation keeps the loop going), and advancing the checkpoint past
-  # a later date would make a preemption relaunch skip the unwritten earlier gap forever.
-  if [[ \$CHUNK_RC -eq 0 && \$HAD_FAILURE -eq 0 ]]; then
+  # it. Gated on no failure across EVERY league processed for this chunk (the per-league
+  # loop above sets HAD_FAILURE the moment any single league fails) AND no EARLIER chunk
+  # having failed: chunks are processed in date order but a later chunk can still complete
+  # after an earlier one failed (shard-level isolation keeps the loop going), and
+  # advancing the checkpoint past a later date would make a preemption relaunch skip the
+  # unwritten earlier gap forever.
+  if [[ \$HAD_FAILURE -eq 0 ]]; then
     echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
   fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
