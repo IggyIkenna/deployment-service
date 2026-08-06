@@ -156,14 +156,17 @@ def _write_first_seen(storage_client: StorageClient, log_bucket: str, census: di
         logger.warning("heartbeat first-seen census persist failed: %s", exc)
 
 
-def _list_running_vms() -> list[tuple[str, str]]:
-    """Return ``(vm_name, zone)`` for every RUNNING VM.
+def _list_running_vms() -> list[tuple[str, str]] | None:
+    """Return ``(vm_name, zone)`` for every RUNNING VM, or ``None`` if the census is unknown.
 
     Routes through the UTL Compute Engine client (cloud-SDK confined to the
     unified-cloud-interface — the same path ``gcp_instance_lister`` uses) rather
     than touching ``google.cloud.compute_v1`` directly.  Read-only + failure
-    isolated: an API error or timeout returns an empty list (the sweep then
-    no-ops, the safe default).
+    isolated: an API error or timeout returns ``None``, and callers MUST treat that
+    differently from a genuine empty project — ``[]`` means "no VMs running" (the
+    sweep proceeds), ``None`` means "I don't know" (the reaper falls back to
+    heartbeat-age-only classification, never a mass ``vm_not_running`` reap — see
+    :func:`_running_vm_names`; cefi false-reap 2026-07-31).
 
     The underlying ``aggregated_list_instances`` call is a synchronous blocking
     paginated gRPC stream with no built-in timeout.  A slow or unresponsive GCP
@@ -171,7 +174,7 @@ def _list_running_vms() -> list[tuple[str, str]]:
     from being called and producing a spurious DP_CRON_DID_NOT_FIRE alert (DP-WATCHER-002).
     The ``ThreadPoolExecutor`` + ``future.result(timeout=...)`` pattern bounds the
     blocking call to ``_LIST_VMS_TIMEOUT_SECS``; on expiry the stuck gRPC thread is
-    abandoned (Python 3.13 ``cancel_futures=True``) and an empty list is returned so
+    abandoned (Python 3.13 ``cancel_futures=True``) and ``None`` is returned so
     the sweep + sentinel write proceed normally.
     """
     project_id = _project_id()
@@ -195,14 +198,31 @@ def _list_running_vms() -> list[tuple[str, str]]:
         except FuturesTimeoutError:
             logger.warning(
                 "_list_running_vms: aggregated_list stalled for >%.0fs — "
-                "returning [] so sentinel write still fires; stuck gRPC thread abandoned",
+                "returning None (census unknown) so sentinel write still fires; "
+                "stuck gRPC thread abandoned",
                 _LIST_VMS_TIMEOUT_SECS,
             )
             pool.shutdown(wait=False, cancel_futures=True)
-            return []
+            return None
     except Exception as exc:
         logger.warning("_list_running_vms failed: %s", exc)
-        return []
+        return None
+
+
+def _running_vm_names(all_running_vms: list[tuple[str, str]] | None) -> set[str] | None:
+    """Build ``reap_stale``'s ``running_vm_names`` arg from the running-VM census.
+
+    ``None`` (census unknown — the GCE list failed/timed out) must map to ``None`` so
+    ``reap_stale`` falls back to heartbeat-age-only classification (the documented
+    "may under-reap, never over-reaps" default). Passing ``set()`` instead would read
+    "the API failed" as "no VMs running" and classify EVERY stale entry as
+    ``vm_not_running`` — the mass false-reap that archived a genuinely-RUNNING VM
+    (``cefi_content_apply_memory_freeze_recurs_post_fix_and_registry_false_reap``
+    Finding 3, 2026-07-31T05:46:53Z).
+    """
+    if all_running_vms is None:
+        return None
+    return {vm_name for vm_name, _zone in all_running_vms}
 
 
 def _make_shard_backed_ag_fn(storage_client: StorageClient):
@@ -575,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
             while True:
                 sweep_pass += 1
                 all_running_vms = _list_running_vms()
-                running = [vm for vm in all_running_vms if _is_data_vm(vm[0])]
+                running = [] if all_running_vms is None else [vm for vm in all_running_vms if _is_data_vm(vm[0])]
                 ec_findings: list[PipelineFinding] = []
                 results = exit_code_fleet_monitor.sweep(
                     storage_client=storage_client,
@@ -624,9 +644,7 @@ def main(argv: list[str] | None = None) -> int:
                     # limited to data VMs). Best-effort: a failure here must never abort the
                     # exit-code sweep itself.
                     try:
-                        reaped = DeploymentsRegistry().reap_stale(
-                            running_vm_names={vm_name for vm_name, _zone in all_running_vms}
-                        )
+                        reaped = DeploymentsRegistry().reap_stale(running_vm_names=_running_vm_names(all_running_vms))
                         if reaped:
                             logger.info(
                                 "exit-code sweep: reap_stale archived %d stale deployment registration(s): %s",
@@ -658,7 +676,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 time.sleep(_STORM_RESWEEP_INTERVAL_SECS)
         elif mode == "heartbeat":
-            running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
+            running_census = _list_running_vms()
+            running = [] if running_census is None else [vm for vm in running_census if _is_data_vm(vm[0])]
             prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
             # VM age is derived from a first-seen census the monitor maintains (no
             # per-instance compute describe — keeps the cloud SDK fully confined to

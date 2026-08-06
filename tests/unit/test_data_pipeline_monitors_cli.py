@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from unified_trading_library import (
+    ACTIVE_PREFIX,
     ARCHIVE_PREFIX,
     DEFAULT_BUCKET,
     DeploymentRegistryEntry,
@@ -594,11 +595,13 @@ def test_meta_catalogue_fresh_no_alert(monkeypatch):
 # ── _list_running_vms timeout (DP-WATCHER-002 root-cause fix) ────────────────
 
 
-def test_list_running_vms_returns_empty_on_timeout(monkeypatch):
-    """_list_running_vms must return [] within _LIST_VMS_TIMEOUT_SECS even when
-    aggregated_list_instances blocks indefinitely — the sentinel write must still
-    fire so the Cloud Run Job finishes SUCCEEDED and no DP_CRON_DID_NOT_FIRE alert
-    is raised."""
+def test_list_running_vms_returns_none_on_timeout(monkeypatch):
+    """_list_running_vms must return None (census unknown) within _LIST_VMS_TIMEOUT_SECS
+    even when aggregated_list_instances blocks indefinitely — the sentinel write must
+    still fire so the Cloud Run Job finishes SUCCEEDED and no DP_CRON_DID_NOT_FIRE alert
+    is raised. None (not []) is the fail signal: an empty list would read the timeout
+    as "no VMs running" and trigger a mass vm_not_running reap (cefi false-reap,
+    2026-07-31)."""
     import threading
 
     hang_event = threading.Event()
@@ -617,7 +620,7 @@ def test_list_running_vms_returns_empty_on_timeout(monkeypatch):
     finally:
         hang_event.set()  # release the blocked thread so it doesn't leak
 
-    assert result == []
+    assert result is None
 
 
 def test_list_running_vms_returns_results_normally(monkeypatch):
@@ -634,6 +637,49 @@ def test_list_running_vms_returns_results_normally(monkeypatch):
     monkeypatch.setattr(cli, "_project_id", lambda: "test-project")
     result = cli._list_running_vms()
     assert result == [("mtds-live-cefi-2025", "asia-northeast1-c")]
+
+
+def test_running_vm_names_maps_none_to_none():
+    """Census-unknown (None) must map to reap_stale's running_vm_names=None so the
+    reaper falls back to heartbeat-age-only — NEVER an empty set, which would read
+    "the API failed" as "no VMs running" and mass-reap every stale entry as
+    vm_not_running."""
+    assert cli._running_vm_names(None) is None
+    # A genuinely-empty project (census succeeded) is still an empty set.
+    assert cli._running_vm_names([]) == set()
+    assert cli._running_vm_names([("vm-a", "asia-northeast1-c"), ("vm-b", "asia-northeast1-a")]) == {
+        "vm-a",
+        "vm-b",
+    }
+
+
+def test_main_exit_code_mode_none_census_does_not_false_reap(monkeypatch):
+    """Finding-3 regression: a transient GCE-list failure (None census) must NOT
+    archive a still-registered VM as vm_not_running. reap_stale falls back to
+    heartbeat-age-only classification when running_vm_names=None — a 1-hour-old
+    heartbeat is not past the 6h max_age, so the entry stays active."""
+    storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
+    monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
+    # The GCE list API "failed" this tick → census unknown (None), NOT an empty list.
+    monkeypatch.setattr(cli, "_list_running_vms", lambda: None)
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+    # Isolate the reap wiring — the sweep itself finds nothing.
+    monkeypatch.setattr(exit_code_fleet_monitor, "sweep", lambda **_kwargs: [])
+
+    reg_storage = InMemoryStorageClient()
+    registry = DeploymentsRegistry(bucket=DEFAULT_BUCKET, storage=reg_storage)
+    old_hb = (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry.register(_make_registry_entry(last_heartbeat_at=old_hb))
+    monkeypatch.setattr(cli, "DeploymentsRegistry", lambda *_a, **_kw: registry)
+
+    rc = cli.main(["--mode", "exit-code"])
+    assert rc == 0
+
+    # The entry must still be active — it was NOT reaped as vm_not_running.
+    active_keys = reg_storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX)
+    assert len(active_keys) == 1
+    assert reg_storage.list_keys(DEFAULT_BUCKET, ARCHIVE_PREFIX) == []
 
 
 def test_escalation_dry_run_emits_nothing(monkeypatch):
