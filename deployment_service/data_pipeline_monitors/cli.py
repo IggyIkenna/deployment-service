@@ -156,14 +156,22 @@ def _write_first_seen(storage_client: StorageClient, log_bucket: str, census: di
         logger.warning("heartbeat first-seen census persist failed: %s", exc)
 
 
-def _list_running_vms() -> list[tuple[str, str]]:
-    """Return ``(vm_name, zone)`` for every RUNNING VM.
+def _list_running_vms() -> list[tuple[str, str]] | None:
+    """Return ``(vm_name, zone)`` for every RUNNING VM, or ``None`` if the census FAILED.
 
     Routes through the UTL Compute Engine client (cloud-SDK confined to the
     unified-cloud-interface — the same path ``gcp_instance_lister`` uses) rather
     than touching ``google.cloud.compute_v1`` directly.  Read-only + failure
-    isolated: an API error or timeout returns an empty list (the sweep then
-    no-ops, the safe default).
+    isolated: an API error or timeout returns ``None`` (NOT ``[]``) so callers can
+    tell "census failed / unknown" apart from "genuinely zero VMs running".
+
+    The distinction matters for ``DeploymentsRegistry.reap_stale()``: passing an
+    EMPTY set as ``running_vm_names`` reads as an authoritative "no VMs running"
+    and archives every stale-heartbeat registration as ``vm_not_running`` — which
+    false-reaps a live-but-frozen VM whenever a transient census failure is
+    conflated with an empty fleet (cefi_content_apply_memory_freeze_recurs_post_fix_and_registry_false_reap_2026_07_31.md
+    Finding 3).  Callers must pass ``None`` (→ heartbeat-age-only classification,
+    may under-reap, never over-reaps) on a failed census.
 
     The underlying ``aggregated_list_instances`` call is a synchronous blocking
     paginated gRPC stream with no built-in timeout.  A slow or unresponsive GCP
@@ -171,7 +179,7 @@ def _list_running_vms() -> list[tuple[str, str]]:
     from being called and producing a spurious DP_CRON_DID_NOT_FIRE alert (DP-WATCHER-002).
     The ``ThreadPoolExecutor`` + ``future.result(timeout=...)`` pattern bounds the
     blocking call to ``_LIST_VMS_TIMEOUT_SECS``; on expiry the stuck gRPC thread is
-    abandoned (Python 3.13 ``cancel_futures=True``) and an empty list is returned so
+    abandoned (Python 3.13 ``cancel_futures=True``) and ``None`` is returned so
     the sweep + sentinel write proceed normally.
     """
     project_id = _project_id()
@@ -195,14 +203,15 @@ def _list_running_vms() -> list[tuple[str, str]]:
         except FuturesTimeoutError:
             logger.warning(
                 "_list_running_vms: aggregated_list stalled for >%.0fs — "
-                "returning [] so sentinel write still fires; stuck gRPC thread abandoned",
+                "returning None (census failed) so sentinel write still fires; "
+                "stuck gRPC thread abandoned",
                 _LIST_VMS_TIMEOUT_SECS,
             )
             pool.shutdown(wait=False, cancel_futures=True)
-            return []
+            return None
     except Exception as exc:
         logger.warning("_list_running_vms failed: %s", exc)
-        return []
+        return None
 
 
 def _make_shard_backed_ag_fn(storage_client: StorageClient):
@@ -575,7 +584,10 @@ def main(argv: list[str] | None = None) -> int:
             while True:
                 sweep_pass += 1
                 all_running_vms = _list_running_vms()
-                running = [vm for vm in all_running_vms if _is_data_vm(vm[0])]
+                # ``None`` = the census FAILED (timeout/API error), NOT "zero VMs".
+                # The reap below must treat that as unknown (running_vm_names=None)
+                # so a transient census failure never false-reaps a live VM.
+                running = [vm for vm in (all_running_vms or []) if _is_data_vm(vm[0])]
                 ec_findings: list[PipelineFinding] = []
                 results = exit_code_fleet_monitor.sweep(
                     storage_client=storage_client,
@@ -624,8 +636,17 @@ def main(argv: list[str] | None = None) -> int:
                     # limited to data VMs). Best-effort: a failure here must never abort the
                     # exit-code sweep itself.
                     try:
+                        # A failed census (all_running_vms is None) must pass None —
+                        # an EMPTY set would read as authoritative "no VMs running"
+                        # and archive every stale-heartbeat registration as
+                        # vm_not_running, false-reaping a live-but-frozen VM
+                        # (cefi_content_apply_memory_freeze_recurs_post_fix_and_registry_false_reap_2026_07_31.md).
                         reaped = DeploymentsRegistry().reap_stale(
-                            running_vm_names={vm_name for vm_name, _zone in all_running_vms}
+                            running_vm_names=(
+                                {vm_name for vm_name, _zone in all_running_vms}
+                                if all_running_vms is not None
+                                else None
+                            )
                         )
                         if reaped:
                             logger.info(
@@ -658,7 +679,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 time.sleep(_STORM_RESWEEP_INTERVAL_SECS)
         elif mode == "heartbeat":
-            running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
+            running = [vm for vm in (_list_running_vms() or []) if _is_data_vm(vm[0])]
             prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
             # VM age is derived from a first-seen census the monitor maintains (no
             # per-instance compute describe — keeps the cloud SDK fully confined to
