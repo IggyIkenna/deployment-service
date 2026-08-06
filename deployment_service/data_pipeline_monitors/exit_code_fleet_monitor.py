@@ -29,7 +29,12 @@ This monitor is census-diffing + durable-signal-reading:
          (``cefi_completion_program_2026_07_15.md``) — the actuator self-emits a
          CRITICAL ``DP_VM_PREEMPTED_NO_RELAUNCH`` whenever the relaunch itself
          fails (no launcher bound / budget exhausted / guard refusal / launcher
-         error), so a preempted backfill can never silently vanish again.
+         error), so a preempted backfill can never silently vanish again. A
+         STANDARD (on-demand) VM is structurally incapable of GCE preemption —
+         ``classify_terminated_vm``'s ``is_spot`` veto stops a stale/incorrect
+         signal from EITHER preemption source ever resolving to PREEMPTED for
+         one (closes
+         ``cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md``).
        - ``DP_VM_PARTIAL_UNCONFIRMED`` (WARN, ``auto_recover``) when captured
          climbed but NO durable terminal marker was ever written (``exit_code is
          None`` — neither an ``EXIT_STATUS`` blob nor a ``command exited rc=<n>``
@@ -165,14 +170,37 @@ def classify_terminated_vm(
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT,
     preempted: bool = False,
     is_live_vm: bool = False,
+    is_spot: bool | None = None,
 ) -> TerminationResult:
     """Pure classification of a terminated VM. No I/O.
 
     Verdict precedence (most severe first):
-      - ``preempted == True``                         → PREEMPTED (benign SPOT relaunch)
+      - ``preempted == True`` AND ``is_spot is not False``  → PREEMPTED (benign SPOT relaunch)
           GCE preemption SIGTERM causes a non-zero exit; the PREEMPTED blob written
           by the VM's shutdown-script is the authoritative "this was benign" signal —
           checked BEFORE exit_code so a preempted VM never false-fires DP-VM-001.
+      - ``is_spot`` VETO (closes
+        cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md): a
+        GCE STANDARD (on-demand) instance is STRUCTURALLY INCAPABLE of being
+        preempted — preemption is a SPOT-only mechanism. ``cefi-fwd-20260806-064507``
+        (provisioningModel=STANDARD, deliberately ``instances.stop``'d by
+        ``unified-trading-sa``, zero actual ``compute.instances.preempted``
+        operations) was still classified PREEMPTED and paged a CRITICAL
+        ``DP_VM_PREEMPTED_NO_RELAUNCH`` once its relaunch found nothing to
+        resume — neither preemption signal (the in-guest GCS marker nor the
+        Operations-API fallback) was ever cross-checked against the instance's
+        OWN scheduling config, so a wrong signal from EITHER source was trusted
+        unconditionally. When the caller resolves the VM's actual
+        ``scheduling.provisioning_model`` and passes ``is_spot=False`` (confirmed
+        STANDARD), a ``preempted=True`` input is VETOED here — it can no longer
+        select the PREEMPTED verdict, and classification falls through to the
+        normal exit_code/captured-based path instead. This is a defense-in-depth
+        backstop (it makes a STANDARD VM structurally incapable of producing a
+        PREEMPTED verdict regardless of which upstream signal was wrong), not a
+        substitute for fixing whatever produced the stale/incorrect signal.
+        ``is_spot=None`` (unresolvable — e.g. the instance was already deleted,
+        or the caller passed no checker) preserves today's behavior: ``preempted``
+        is trusted as-is, never suppressed for lack of information.
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
       - captured CLIMBED + ``exit_code == 0``         → CLEAN (a durable terminal marker CONFIRMS the completion)
       - captured CLIMBED + ``exit_code is None``      → PARTIAL_UNCONFIRMED (DP-VM-010)
@@ -219,8 +247,13 @@ def classify_terminated_vm(
     climbing captured count is real work, but without a durable terminal marker
     it is evidence of PROGRESS, not evidence of COMPLETION.
     """
+    # Veto: a CONFIRMED-non-SPOT instance can never resolve to PREEMPTED, no matter
+    # what the raw `preempted` signal says (see the docstring's `is_spot` section).
+    # `is_spot is None` (unknown) leaves `preempted` untouched — preserves today's
+    # behavior when the caller couldn't resolve the instance's scheduling config.
+    effective_preempted = preempted and is_spot is not False
     climbed = captured_after > captured_before
-    if preempted:
+    if effective_preempted:
         verdict = TerminationVerdict.PREEMPTED
     elif exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
@@ -244,7 +277,7 @@ def classify_terminated_vm(
         captured_before=captured_before,
         captured_after=captured_after,
         no_capture_reason=no_capture_reason,
-        preempted=preempted,
+        preempted=effective_preempted,
     )
 
 
@@ -500,6 +533,7 @@ def sweep(
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
     preemption_op_checker: Callable[[str], bool] | None = None,
+    scheduling_model_checker: Callable[[str], str | None] | None = None,
     finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
@@ -540,6 +574,19 @@ def sweep(
             ``tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-20260731-060117`` — preempted
             106s post-insert, zero run.log lines, no PREEMPTED blob). Absent, the
             monitor behaves exactly as before (GCS-marker-only).
+        scheduling_model_checker: optional ``vm_name -> scheduling.provisioning_model``
+            resolver (``"STANDARD"``/``"SPOT"``/...) backed by the Compute Engine API
+            (``aggregated_list_instances``). Consulted ONLY when a candidate-preempted
+            verdict is about to fire (either signal above said ``True``) — cross-checks
+            it against the instance's ACTUAL scheduling config and VETOES the verdict
+            when confirmed non-SPOT, since a STANDARD instance is structurally
+            incapable of GCE preemption. Closes
+            cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md
+            (``cefi-fwd-20260806-064507``, provisioningModel=STANDARD, deliberately
+            ``instances.stop``'d by our own system, classified PREEMPTED anyway — a
+            CRITICAL ``DP_VM_PREEMPTED_NO_RELAUNCH`` page for a VM that was never
+            actually preempted). Absent, the monitor behaves exactly as before
+            (either preemption signal is trusted unconditionally).
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
         worker_stall_safe_launchers: launcher-script names whose target script is
@@ -605,6 +652,39 @@ def sweep(
                     name,
                     exc_info=True,
                 )
+        # Cross-check ANY candidate-preempted verdict against the instance's actual
+        # scheduling config before it reaches classify_terminated_vm — a STANDARD
+        # (on-demand) instance is structurally incapable of GCE preemption, so
+        # neither signal above (the in-guest GCS marker nor the Operations-API
+        # fallback) is trustworthy on its own (closes
+        # cefi_fwd_vm_preempted_false_positive_standard_provisioning_2026_08_06.md:
+        # cefi-fwd-20260806-064507, provisioningModel=STANDARD, was deliberately
+        # instances.stop'd by our own system yet still classified PREEMPTED). Only
+        # worth the extra API call on the candidate-preempted path (same "bounded,
+        # only when needed" discipline as preemption_op_checker above).
+        is_spot: bool | None = None
+        if is_preempted and scheduling_model_checker is not None:
+            try:
+                provisioning_model = scheduling_model_checker(name)
+            except Exception:
+                logger.warning(
+                    "exit_code_fleet_monitor: scheduling_model_checker(%s) failed — "
+                    "trusting the preempted signal as-is",
+                    name,
+                    exc_info=True,
+                )
+                provisioning_model = None
+            if provisioning_model is not None:
+                is_spot = provisioning_model == "SPOT"
+                if not is_spot:
+                    logger.warning(
+                        "exit_code_fleet_monitor: %s carries a preempted=True signal but its "
+                        "actual GCE scheduling.provisioning_model is %s (not SPOT) — a "
+                        "STANDARD/on-demand instance cannot be GCE-preempted, vetoing the "
+                        "PREEMPTED verdict",
+                        name,
+                        provisioning_model,
+                    )
         # A terminated VM with NO durable exit marker AND climbing captured is the
         # PARTIAL_UNCONFIRMED candidate (see classify_terminated_vm) — it needs the
         # SAME relaunch-replay env as PREEMPTED. A WORKER_STALLED self-delete
@@ -669,6 +749,7 @@ def sweep(
             no_capture_reason=no_capture_reason,
             preempted=is_preempted,
             is_live_vm=is_live_vm,
+            is_spot=is_spot,
         )
         results.append(result)
 
