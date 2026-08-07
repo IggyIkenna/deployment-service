@@ -1,19 +1,24 @@
-"""Staleness LABELING for DP-FETCH-009 (``DP_RUN_MOSTLY_EMPTY``) attempted_failed cells.
+"""Staleness helpers for DP-FETCH-009 (``DP_RUN_MOSTLY_EMPTY``) attempted_failed cells.
 
 Split into its own module rather than added to ``meta_watchers.py`` (already at its
-920-line file-size cap — mirrors why ``renag_tracker.py`` / ``known_dead_cells_registry.py``
+file-size cap — mirrors why ``renag_tracker.py`` / ``known_dead_cells_registry.py``
 exist as siblings instead of growing that file further).
 
-Per
-``plans/active/issues/cefi_high_attempted_failed_batch_cluster_2026_07_23.md``'s
-"Alerting-hygiene question" — CRITICAL-paging a ``(asset_group, data_type)`` cell that has
-sat unchanged for days looks identical, in the alert body, to a cell that JUST failed. This
-module computes the plain FACT the operator needs to tell them apart (how many days since the
-cell's newest ``attempted_failed`` row) and a labeling threshold for annotating the alert
-body/details — it does **not** decide whether to suppress or change paging cadence for a
-stale cell. That is a separate, still-open policy question for the operator/alerting-service
-owner (visible pressure on a known backlog vs. alert fatigue) — this module only makes the
-distinction VISIBLE, deliberately leaving delivery behavior untouched.
+Two responsibilities:
+
+1. **Trailing-window HIGH verdict** (``trailing_attempted_failed_count``): count
+   ``attempted_failed`` rows whose ``attempted_at`` falls within the caller-supplied
+   look-back window. ``check_high_attempted_failed`` uses this count — rather than the
+   lifetime manifest total — to decide whether a cell is HIGH, so a cell whose failures
+   are dominated by already-fixed historical incidents (e.g. a Tardis N>1 concurrency
+   storm) stops paging once those failures age out of the window.
+   Fall-safe: when no row carries a parseable timestamp (legacy/test data), the function
+   returns ``lifetime_count`` so the alert does NOT silently suppress undatable failures.
+
+2. **STATIC BACKLOG labeling** (``stale_backlog_annotation`` / ``recent_activity_mask`` /
+   ``stale_days_since``): additive annotation on the alert body/details so a reader can
+   tell "static, already-tracked backlog" from "fresh failure" at a glance. Purely
+   informational — these never change whether/how often the alert pages.
 """
 
 from __future__ import annotations
@@ -53,6 +58,32 @@ def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None
     moment = now or datetime.now(UTC)
     cutoff = pd.Timestamp(moment - timedelta(days=STATIC_BACKLOG_STALE_DAYS_THRESHOLD))
     return ts >= cutoff
+
+
+def trailing_attempted_failed_count(
+    attempted_at: pd.Series,
+    *,
+    window_days: int,
+    lifetime_count: int,
+    now: datetime | None = None,
+) -> int:
+    """Count of ``attempted_failed`` rows whose ``attempted_at`` falls within
+    ``window_days`` of ``now``.
+
+    **Fail-safe**: when no row carries a parseable timestamp (legacy manifest data or
+    test fixtures that omit ``attempted_at``), returns ``lifetime_count`` so the HIGH
+    verdict is never silently suppressed for undatable failures.
+
+    NaT/unparseable rows are never counted as recent — mirrors ``stale_days_since``'s
+    convention. Callers should pass the same ``now`` used for other staleness checks
+    within a sweep to keep the window consistent.
+    """
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    if not bool(ts.notna().any()):
+        return lifetime_count  # no parseable timestamps → fail-safe, treat as recent
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=window_days))
+    return int((ts >= cutoff).sum())
 
 
 def stale_backlog_annotation(
