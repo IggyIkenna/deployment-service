@@ -1028,10 +1028,21 @@ lc_verify_tarball_freshness() {
             echo "lc_verify_tarball_freshness: auto-republishing stale tarball(s): ${stale_repos}"
             if $republish_cmd; then
                 echo "lc_verify_tarball_freshness: republish complete — re-verifying"
-                # Re-verify once in warn mode (no infinite loop) so the operator
-                # sees confirmation the republish took.
-                LC_TARBALL_FRESHNESS=warn lc_verify_tarball_freshness "$code_bucket" $stale_repos
-                return 0
+                # Re-verify in enforce mode so we can propagate the actual
+                # post-republish freshness result. Prior warn-mode re-verify always
+                # returned 0 regardless — create-code-tarballs.sh also exits 0 when
+                # it SKIPS a repo due to a dirty working tree (a normal state on
+                # shared multi-slot checkouts), so auto silently declared success
+                # and let a VM launch onto stale code. enforce never republishes
+                # again (no loop); suppress its ERROR lines to stderr — we emit a
+                # clearer message below.
+                # Root: issues/lc_verify_tarball_freshness_auto_mode_silent_dirty_skip_2026_08_06.md
+                if LC_TARBALL_FRESHNESS=enforce \
+                   lc_verify_tarball_freshness "$code_bucket" $stale_repos 2>/dev/null; then
+                    return 0
+                fi
+                echo "ERROR: auto-republish completed but tarball(s) still stale (republish skipped? dirty working tree?): ${stale_repos}" >&2
+                return 1
             fi
             echo "ERROR: auto-republish failed for: ${stale_repos} — not launching onto unverified code" >&2
             return 1
