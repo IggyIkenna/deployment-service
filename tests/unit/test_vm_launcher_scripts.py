@@ -1927,16 +1927,16 @@ export -f gsutil
     # ---- half 3: the real watchdog, against a simulated hang ----
 
     def _mock_bin_functions(self) -> str:
-        """Bash-function mocks for the heavy deps vm-exec-with-gcs-tee.sh talks to, so this test
-        never touches real GCS/GCE credentials. `stat` is additionally shimmed to a portable
-        `wc -c`-based equivalent of GNU coreutils' `stat -c %s` (production always runs this
-        script on real Ubuntu GCE VMs where that flag is native; a local dev/CI box may not be
-        Linux, so this keeps the byte-growth-vs-progress-regex comparison meaningful everywhere
-        rather than silently degenerating on a non-GNU `stat`). All three are exported so they
-        survive the script's own `exec setsid bash "$0" "$@"` re-exec when `setsid` is present
-        (bash forwards `export -f` functions to a child bash via BASH_FUNC_*% env vars regardless
-        of the intermediate `setsid` binary; verified directly against this exact script this
-        session on both a no-setsid host and by tracing the re-exec logic)."""
+        """Bash-function mocks for `python`/`stat`, the two heavy deps vm-exec-with-gcs-tee.sh
+        calls DIRECTLY (never through a `timeout <n>` wrapper), so a bash-function export
+        survives into the child bash the script's own `exec setsid bash "$0" "$@"` re-exec
+        spawns (bash forwards `export -f` functions to a child bash via BASH_FUNC_*% env vars
+        regardless of the intermediate `setsid` binary). `stat` is additionally shimmed to a
+        portable `wc -c`-based equivalent of GNU coreutils' `stat -c %s` (production always runs
+        this script on real Ubuntu GCE VMs where that flag is native; a local dev/CI box may not
+        be Linux, so this keeps the byte-growth-vs-progress-regex comparison meaningful
+        everywhere rather than silently degenerating on a non-GNU `stat`). `gcloud`/`gsutil` are
+        deliberately NOT mocked here as functions -- see `_write_mock_path_bins()` below."""
         return """
 python() {
     if [[ "$1" == "-c" ]]; then
@@ -1946,10 +1946,6 @@ python() {
     return 0
 }
 export -f python
-gsutil() { return 0; }
-export -f gsutil
-gcloud() { return 0; }
-export -f gcloud
 stat() {
     if [[ "$1" == "-c" && "$2" == "%s" ]]; then
         wc -c < "$3" 2>/dev/null | tr -d ' '
@@ -1960,6 +1956,23 @@ stat() {
 export -f stat
 """
 
+    def _write_mock_path_bins(self, tmp_path: Path) -> Path:
+        """Real executable no-op shims for gcloud/gsutil, on a directory meant to be prepended to
+        PATH. Every call site in vm-exec-with-gcs-tee.sh now wraps these in `timeout <n> gcloud
+        ...` (2026-08-06, e06b842 -- bounding the prior unbounded-hang incident), and `timeout`
+        resolves its command argument via a PATH lookup (execvp), never via the calling shell's
+        function table -- a bash-function mock (this class's old approach) is invisible to it, so
+        `timeout 30 gcloud ...` silently fell through to the REAL `gcloud` binary and made real
+        (slow, sometimes 25s+) network calls against the nonexistent `gs://fake-test-bucket`,
+        intermittently blowing this test's own subprocess timeout in CI."""
+        bin_dir = tmp_path / "mockbin"
+        bin_dir.mkdir(exist_ok=True)
+        for name in ("gcloud", "gsutil"):
+            shim = bin_dir / name
+            shim.write_text("#!/usr/bin/env bash\nexit 0\n")
+            shim.chmod(0o755)
+        return bin_dir
+
     def _run_watchdog(
         self,
         watchdog_path: Path,
@@ -1968,8 +1981,10 @@ export -f stat
         tmp_path: Path,
     ) -> subprocess.CompletedProcess[str]:
         gcs_log_uri = f"gs://fake-test-bucket/vm-logs/{tmp_path.name}/run.log"
+        mock_bin_dir = self._write_mock_path_bins(tmp_path)
         env = {
             **os.environ,
+            "PATH": f"{mock_bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
             "VM_NAME": f"stall-detection-unit-test-{tmp_path.name}",
             "VM_ASSET_GROUP": "CEFI",
             "VM_TASK": "canonical-migration",
@@ -2247,6 +2262,9 @@ export -f gsutil
     # ---- half 3: the real watchdog, against the exact observed incident shape ----
 
     def _mock_bin_functions(self) -> str:
+        """`gcloud`/`gsutil` are deliberately NOT mocked here as functions -- see
+        `_write_mock_path_bins()` below (every call site now wraps them in `timeout <n> gcloud
+        ...`, which resolves via a PATH lookup, not a bash-function table)."""
         return """
 python() {
     if [[ "$1" == "-c" ]]; then
@@ -2256,10 +2274,6 @@ python() {
     return 0
 }
 export -f python
-gsutil() { return 0; }
-export -f gsutil
-gcloud() { return 0; }
-export -f gcloud
 stat() {
     if [[ "$1" == "-c" && "$2" == "%s" ]]; then
         wc -c < "$3" 2>/dev/null | tr -d ' '
@@ -2270,6 +2284,18 @@ stat() {
 export -f stat
 """
 
+    def _write_mock_path_bins(self, tmp_path: Path) -> Path:
+        """Real executable no-op shims for gcloud/gsutil, on a directory meant to be prepended to
+        PATH -- see TestCanonicalMigrationStallDetection._write_mock_path_bins for the full
+        rationale (same watchdog script, same 2026-08-06 e06b842 regression)."""
+        bin_dir = tmp_path / "mockbin"
+        bin_dir.mkdir(exist_ok=True)
+        for name in ("gcloud", "gsutil"):
+            shim = bin_dir / name
+            shim.write_text("#!/usr/bin/env bash\nexit 0\n")
+            shim.chmod(0o755)
+        return bin_dir
+
     def _run_watchdog(
         self,
         watchdog_path: Path,
@@ -2278,8 +2304,10 @@ export -f stat
         tmp_path: Path,
     ) -> subprocess.CompletedProcess[str]:
         gcs_log_uri = f"gs://fake-test-bucket/vm-logs/{tmp_path.name}/run.log"
+        mock_bin_dir = self._write_mock_path_bins(tmp_path)
         env = {
             **os.environ,
+            "PATH": f"{mock_bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
             "VM_NAME": f"cefi-fts-stall-unit-test-{tmp_path.name}",
             "VM_ASSET_GROUP": "CEFI",
             "VM_TASK": "canonical-migration",
