@@ -389,11 +389,18 @@ def test_databento_per_ip_is_usage_billed_no_rpm() -> None:
     assert lim.rpm is None  # usage-billed, scale via more IPs
 
 
-def test_polymarket_per_ip_has_placeholder_pending_calibration() -> None:
-    lim = per_ip_rate_for_source("polymarket_clob")
-    assert lim is not None
-    assert lim.rpm == 600
-    assert lim.calibrated is False  # ramp probe replaces this
+def test_polymarket_per_ip_calibrated() -> None:
+    # Measured 2026-08-06 ramp-to-429 probe: polymarket_clob hit no break up to
+    # max_rpm=3600; safe floor 2880 (0.8x 3600). polymarket_gamma_api broke at
+    # 2040 rpm; safe=1632 rpm. Both are now calibrated=True.
+    clob = per_ip_rate_for_source("polymarket_clob")
+    assert clob is not None
+    assert clob.rpm == 2880
+    assert clob.calibrated is True
+    gamma = per_ip_rate_for_source("polymarket_gamma_api")
+    assert gamma is not None
+    assert gamma.rpm == 1632
+    assert gamma.calibrated is True
 
 
 def test_per_ip_source_refuses_fleet_allocation() -> None:

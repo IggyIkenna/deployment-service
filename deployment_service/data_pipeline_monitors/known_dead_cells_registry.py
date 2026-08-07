@@ -11,10 +11,10 @@ manifest history with no recency window, so a dead cell whose count stays above
 Shared mechanism (not a CBOE-only special case) per
 ``issues/tradfi_ohlcv_attempted_failed_cluster_2026_07_23.md`` /
 ``issues/tradfi_unreachable_databento_data_types_mbp10_ohlcv_coarse_calendar_2026_07_15.md``
-— add a sibling entry here for ``mbp_10``/``corporate_action_confirmed``/
-``earnings_result`` once each is confirmed dead-and-narrowed (not done here — only the
-verified CBOE ``ohlcv_15m`` instance is populated; the sibling cells still need their
-own narrowing-date + zero-new-activity verification before joining this registry).
+— ``mbp_10`` is also registered here (2026-07-15 operator decision);
+``corporate_action_confirmed``/``earnings_result`` historical rows were cleaned up
+outright (``market-tick-data-service@c24db4cf``, 2026-07-28) so they don't need a
+registry entry.
 
 SAFETY: an entry only suppresses while the cell's ``attempted_failed`` population has
 ZERO activity newer than ``narrowed_at`` — see :func:`is_known_dead`. Any row with
@@ -61,6 +61,22 @@ KNOWN_DEAD_CELLS: dict[tuple[str, str], KnownDeadCell] = {
             "1,242 historical rows are frozen at a single 2026-07-07 batch timestamp — "
             "deliberately left un-purged. "
             "issues/tradfi_ohlcv_attempted_failed_cluster_2026_07_23.md"
+        ),
+    ),
+    ("tradfi", "mbp_10"): KnownDeadCell(
+        asset_group="tradfi",
+        data_type="mbp_10",
+        narrowed_at=date(2026, 7, 15),
+        venue="CME",
+        narrowed_by="operator-decision (2026-07-15 interactive reconciliation)",
+        note=(
+            "CME mbp_10 UAC VENUE_DATA_TYPE_CAPABILITIES restriction is a "
+            "confirmed-still-intentional operator MVP-scope decision (2026-05-15 "
+            "OHLCV-only MVP narrowing, reconfirmed 2026-07-15). Adapter-layer fix "
+            "shipped (market-tick-data-service@e2018167) but live capture is "
+            "explicitly NOT activated by operator choice. 1,186 historical rows are "
+            "frozen at a single 2026-07-07 batch timestamp per "
+            "issues/tradfi_unreachable_databento_data_types_mbp10_ohlcv_coarse_calendar_2026_07_15.md."
         ),
     ),
 }

@@ -236,6 +236,16 @@ PREFIX_IDLE_THRESHOLDS: dict[str, tuple[float, float]] = {
     "af-backfill-": (15.0, 180.0),
     "af-audit-": (15.0, 180.0),
     "af-recover-": (15.0, 180.0),
+    # canonical-migration VMs: one-off GCS corpus + manifest rewrite campaigns.
+    # The all-DeFi canonical index is 75M rows / 2.41 GiB compressed — a single
+    # whole-index download+filter+rewrite CAS takes 30-60 min with no heartbeat
+    # update (the heartbeat sidecar's gsutil writes can stall under heavy GCS I/O
+    # or memory pressure). 90 min heartbeat window is generous enough to survive
+    # the longest measured manifest operation. Shard check is unused (these VMs
+    # write to the central _index blob, not per-VM manifest shards).
+    # Root-caused 2026-08-06: 15 canonical-migration-defi-gas-fees-legacy-purge-*
+    # attempts killed at ~15 min by the global default (no prefix entry existed).
+    "canonical-migration-": (90.0, 360.0),
 }
 
 

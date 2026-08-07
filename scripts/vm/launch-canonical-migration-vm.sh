@@ -1414,6 +1414,14 @@ _script_for() {
         # day-sub-range sharding across several VMs is strongly preferred over one VM walking serially).
         # DRY-BY-DEFAULT + --apply for full (same convention as defi/cefi/tradfi-cid below).
         defi-relabel) echo "python -u scripts/relabel_solana_dex_pools_fake_history.py" ;;
+        # HYPERLIQUID/ASTER frozen legacy defi-labeled corpus -> asset_group=cefi relabel
+        # (2026-08-06) -- scripts/migrate_hyperliquid_aster_defi_asset_group_2026_08_06.py, per
+        # hyperliquid_aster_defi_to_cefi_asset_group_migration_2026_08_02.md Phase 2. The script
+        # self-scopes its day/venue/data_type worklist from per-day targeted prefix listings over the
+        # verified-live window (2026-05-10..2026-06-09; 7,599 objects, dry-run-confirmed) -- START_DATE/
+        # END_DATE are VM-label-only, no --shard-of (the corpus is ~7.6k objects, one VM is plenty).
+        # DRY-BY-DEFAULT + --apply for full (same convention as defi-relabel).
+        defi-hl-aster-ag-relabel) echo "python -u scripts/migrate_hyperliquid_aster_defi_asset_group_2026_08_06.py" ;;
         # KAMINO/SOLEND legacy lending_indices fake-history relabel-forward migration
         # (2026-07-29) -- scripts/relabel_kamino_solend_lending_fabrication_2026_07_29.py, per
         # defi_kamino_solend_lending_indices_legacy_shape_fabricated_history_2026_07_28.md
@@ -1867,7 +1875,7 @@ _launch() {
               # into the if/full else/dry branches by _script_for -- suppressed so the generic append never
               # double-flags it. *-iah-purge (the gated purge half, todo 7d) is the SAME class as *-iah --
               # same --apply-prod/--confirm-prod-write flag shape, same suppression reasoning.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" || "$cat" == "sports-mdps" || "$cat" == "sports-instruments" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "defi-hl-aster-ag-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" || "$cat" == "sports-mdps" || "$cat" == "sports-instruments" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag) -- migrate_sports_canonical_v9 has NO --dry-run flag at all
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -2009,6 +2017,12 @@ _launch() {
         # each script's own docstring cites a real multi-hour per-object-GCS-latency run, i.e. the
         # per-object cadence is inherently far tighter than the stall window.
         md="${md},STALL_PROGRESS_REGEX=\.parquet -> "
+    elif [[ "$cat" == "defi-hl-aster-ag-relabel" ]]; then
+        # migrate_hyperliquid_aster_defi_asset_group_2026_08_06.py logs "copied N/N ..." every 2000
+        # completed objects inside the 32-worker ThreadPoolExecutor (7,599-object corpus dry-run
+        # confirmed 2026-08-06 — a full run lands well under the 1800s stall window at in-region
+        # GCS copy throughput).
+        md="${md},STALL_PROGRESS_REGEX=copied [0-9]+/[0-9]+"
     elif [[ "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" ]]; then
         # rewrite_tradfi_content_id_2026_07_21.py / rewrite_tradfi_chain_bundle_content_id_2026_07_25.py
         # both log "  progress %d/%d (%.1f%%) -- %.1f/s -- ETA %.0fs -- stats=%s" every 5000 (cid)
@@ -2065,7 +2079,19 @@ _launch() {
         # up + deleted" format every 250 objects, ported unchanged from the GMX template -- reuses
         # the identical regex. Much larger population (~25-27k vs GMX's ~90), but same-zone GCS
         # round-trip latency per object keeps each 250-object gap well under the stall timeout.
+        #
+        # STALL_TIMEOUT_SEC=7200 override (root-caused 2026-08-06): in full mode,
+        # --skip-discovery-verified-empty is ALWAYS set (GCS objects confirmed 0), so the
+        # object-deletion loop NEVER runs and the STALL_PROGRESS_REGEX above NEVER fires.
+        # The only remaining work is _purge_manifest_rows(): a single 2.41 GiB / 75 M-row
+        # whole-index download+filter+serialize+upload+CAS that takes 30-60 min with NO
+        # intermediate log output. In progress-marker mode (STALL_PROGRESS_REGEX set),
+        # vm-exec-with-gcs-tee.sh resets the stall timer ONLY on a regex match -- byte-growth
+        # (PIPELINE_HEARTBEAT) does NOT reset it. Without this override the default 1800s
+        # threshold fires ~halfway through the manifest CAS and kills the VM. 7200s (2h) is
+        # conservative headroom for the full operation to complete before the watchdog triggers.
         md="${md},STALL_PROGRESS_REGEX=object\(s\) backed up \+ deleted"
+        md="${md},STALL_TIMEOUT_SEC=7200"
     elif [[ "$cat" == "defi-lst-rates-fold" ]]; then
         # fold_lst_rates_migrated_markers_2026_07_25.py logs "%d/%d processed in %ds -- %s" every 50
         # markers over the tool's own fixed 346-marker population -- trivially fast.
@@ -2267,7 +2293,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-kamino-lending-retire|defi-blazestake-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-hl-aster-ag-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-gas-fees-legacy-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|defi-catalogue-promote|defi-composite-venue-trace|defi-dex-pools-retire|defi-kamino-lending-retire|defi-blazestake-retire|defi-pool-casing-fold|prediction|sports-mdps|sports-instruments|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|cefi-iah-purge|defi-iah-purge|tradfi-iah-purge|sports-iah-purge|prediction-iah-purge|cefi-mdps-manifest-merge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

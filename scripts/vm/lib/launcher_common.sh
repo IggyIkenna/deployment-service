@@ -1283,7 +1283,7 @@ mkdir -p "\$(dirname "\$LOG_LOCAL")" 2>/dev/null || true
 # same-named relaunch never leaves a PRIOR run's stale terminal EXIT_STATUS
 # (e.g. a stale "0") readable as this run's result if a whole-unit SIGKILL
 # (e.g. a fast OOM) kills this script before the EXIT trap below ever fires.
-echo "RUNNING" | gsutil -q cp - "\$GCS_EXIT_URI" 2>/dev/null || true
+echo "RUNNING" | timeout 30 gcloud storage cp - "\$GCS_EXIT_URI" --quiet 2>/dev/null || true
 exec > >(tee -a "\$LOG_LOCAL") 2>&1
 echo "=== VM STARTED \$(date -u +'%Y-%m-%dT%H:%M:%SZ') vm=${vm_name} asset_group=${asset_group} task=${task} ==="
 # Continuous streamer: ship the growing log to GCS + write a heartbeat blob
@@ -1291,11 +1291,11 @@ echo "=== VM STARTED \$(date -u +'%Y-%m-%dT%H:%M:%SZ') vm=${vm_name} asset_group
 # hung VM's log is never lost. Runs detached; killed by the EXIT trap.
 _lc_stream_loop() {
     while true; do
-        gsutil -q cp "\$LOG_LOCAL" "\$GCS_LOG_URI" 2>/dev/null || true
+        timeout 60 gcloud storage cp "\$LOG_LOCAL" "\$GCS_LOG_URI" --quiet 2>/dev/null || true
         printf 'vm=%s asset_group=%s task=%s alive_at=%s uptime_s=%s\n' \
             "${vm_name}" "\$LC_VM_ASSET_GROUP" "\$LC_VM_TASK" \
             "\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "\$(( \$(date +%s) - LC_START_EPOCH ))" \
-            | gsutil -q cp - "\$GCS_HEARTBEAT_URI" 2>/dev/null || true
+            | timeout 30 gcloud storage cp - "\$GCS_HEARTBEAT_URI" --quiet 2>/dev/null || true
         sleep "\$LC_STREAM_INTERVAL"
     done
 }
@@ -1307,9 +1307,9 @@ _lc_final_upload() {
     echo ""
     echo "=== VM EXIT rc=\$rc \$(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
     # Terminal STOPPED/FAILED signal — durable in GCS even if the VM dies.
-    echo "\$rc" | gsutil -q cp - "\$GCS_EXIT_URI" 2>/dev/null || true
+    echo "\$rc" | timeout 30 gcloud storage cp - "\$GCS_EXIT_URI" --quiet 2>/dev/null || true
     for _i in 1 2 3; do
-        if gsutil -q cp "\$LOG_LOCAL" "\$GCS_LOG_URI" 2>/dev/null; then
+        if timeout 60 gcloud storage cp "\$LOG_LOCAL" "\$GCS_LOG_URI" --quiet 2>/dev/null; then
             echo "log uploaded to \$GCS_LOG_URI (attempt \$_i)"
             break
         fi
@@ -1317,7 +1317,7 @@ _lc_final_upload() {
         sleep 5
     done
     sleep 2
-    gsutil -q cp "\$LOG_LOCAL" "\$GCS_LOG_URI" 2>/dev/null || true
+    timeout 60 gcloud storage cp "\$LOG_LOCAL" "\$GCS_LOG_URI" --quiet 2>/dev/null || true
     # On completion: self-DELETE iff the launcher set VM_SHUTDOWN_ON_COMPLETION=true
     # (ephemeral batch / validation VMs), else just STOP (recurring cron / persistent
     # VMs that omit the flag). Mirrors the proven self-delete in

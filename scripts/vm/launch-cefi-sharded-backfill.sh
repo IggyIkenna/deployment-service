@@ -160,7 +160,7 @@ FREE_ONLY="${FREE_ONLY:-250}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
-ON_DEMAND=false
+ON_DEMAND="${ON_DEMAND:-false}"
 
 # Parse --env (Phase 0f env-tier targeting per bucket-naming SSOT). The legacy
 # behavior (no CLI args, env-var overrides only) is preserved — only --env is

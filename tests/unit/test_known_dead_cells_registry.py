@@ -41,6 +41,15 @@ def test_unregistered_cell_is_never_known_dead() -> None:
     assert m.is_known_dead("sports", "ohlcv_15m", max_attempted_at="2026-07-07T06:40:00Z") is False
 
 
+def test_mbp10_registered_cell_with_no_activity_is_known_dead() -> None:
+    """mbp_10 entry (2026-07-15 operator decision) — frozen 2026-07-07 rows."""
+    assert m.is_known_dead("tradfi", "mbp_10", max_attempted_at="2026-07-07T06:40:00Z") is True
+
+
+def test_mbp10_registered_cell_with_activity_after_narrowing_is_not_known_dead() -> None:
+    assert m.is_known_dead("tradfi", "mbp_10", max_attempted_at="2026-07-20T00:00:00Z") is False
+
+
 def test_is_known_dead_for_series_reduces_to_max() -> None:
     import pandas as pd
 

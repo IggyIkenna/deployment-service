@@ -86,9 +86,9 @@ _self_delete_on_setup_failure() {
         'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print $NF}')
     [[ -n "$vm_name" && -n "$vm_zone" ]] || return 0
     log "SETUP FAILED rc=$rc — uploading log + EXIT_STATUS, scheduling self-delete" || true
-    gsutil -q cp "$LOG" "gs://${CODE_BUCKET}/vm-logs/${vm_name}/vm-setup.log" 2>/dev/null || true
-    echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/SETUP_EXIT_STATUS" 2>/dev/null || true
-    echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/EXIT_STATUS" 2>/dev/null || true
+    timeout 60 gcloud storage cp "$LOG" "gs://${CODE_BUCKET}/vm-logs/${vm_name}/vm-setup.log" --quiet 2>/dev/null || true
+    echo "$rc" | timeout 30 gcloud storage cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/SETUP_EXIT_STATUS" --quiet 2>/dev/null || true
+    echo "$rc" | timeout 30 gcloud storage cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/EXIT_STATUS" --quiet 2>/dev/null || true
     nohup setsid bash -c "
         sleep 10
         gcloud compute instances delete '$vm_name' --zone='$vm_zone' --quiet --delete-disks=all \
@@ -764,7 +764,7 @@ log "Tarballs to install: ${NEEDED_TARBALLS[*]}"
 
 INSTALLED_DIRS=()
 
-if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
+if timeout 30 gcloud storage ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
   for tarball_name in "${NEEDED_TARBALLS[@]}"; do
     dir="${TARBALL_DIRS[$tarball_name]}"
     tarball_path="/tmp/${tarball_name}.tar.gz"
@@ -786,7 +786,7 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
       _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz"
       _tarball_manifest_src="gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json"
     fi
-    if gsutil -q cp "$_tarball_gcs_src" "$tarball_path" 2>/dev/null; then
+    if timeout 300 gcloud storage cp "$_tarball_gcs_src" "$tarball_path" --quiet 2>/dev/null; then
       mkdir -p "$WORKSPACE/$dir"
       tar xzf "$tarball_path" -C "$WORKSPACE/$dir"
       INSTALLED_DIRS+=("$WORKSPACE/$dir")
@@ -794,7 +794,7 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
 
       # Validate tarball manifest.json if present (Phase 3 SHA discipline)
       _tarball_manifest_path="/tmp/${tarball_name}.manifest.json"
-      if gsutil -q cp "$_tarball_manifest_src" "$_tarball_manifest_path" 2>/dev/null; then
+      if timeout 60 gcloud storage cp "$_tarball_manifest_src" "$_tarball_manifest_path" --quiet 2>/dev/null; then
         _tarball_actual_sha=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('commit_sha','unknown'))" 2>/dev/null || echo "unknown")
         _tarball_pyproject_version=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('pyproject_version','unknown'))" 2>/dev/null || echo "unknown")
         log "  manifest: sha=${_tarball_actual_sha:0:12} version=$_tarball_pyproject_version"
@@ -891,13 +891,15 @@ _purge_internal_wheels() {
 }
 
 # Try to download cached wheels
-if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
+if timeout 30 gcloud storage ls "$WHEEL_GCS/" >/dev/null 2>&1; then
   log "Downloading cached wheels from GCS..."
   # timeout-guard: a deadlocked `gsutil -m` (parallel-mode hang, observed
   # 2026-05-25 bricking bybit/hyperliquid/kraken at boot) never returns to hit
   # `|| true`, blocking the whole startup script forever. Bound it so boot
   # proceeds (falls back to building wheels from source if the cache is missing).
-  timeout 180 gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
+  # `gcloud storage` (not gsutil) resolves creds via ADC — same reason as the
+  # 2026-08-06 gas-fees-purge boot hang fix (snap gsutil credential-refresh hang).
+  timeout 180 gcloud storage cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" --quiet 2>/dev/null || true
   WHEEL_COUNT=$(ls "$WHEEL_CACHE"/*.whl 2>/dev/null | wc -l)
   log "Downloaded $WHEEL_COUNT cached wheels"
 fi
@@ -1033,7 +1035,7 @@ if [[ "$NEW_WHEELS" -gt 0 ]] || [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
   # timeout-guard the upload too — this is the exact step that deadlocked and
   # left 3 CeFi VMs hung at boot (gsutil -m parallel-upload hang). Bounded so
   # the workload still launches even if the cache refresh wedges.
-  timeout 180 gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
+  timeout 180 gcloud storage cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" --quiet 2>/dev/null || true
   touch "$WHEEL_CACHE/.uploaded"
   log "Wheels cached to $WHEEL_GCS"
 fi
@@ -1096,7 +1098,7 @@ HEARTBEAT_DAEMON="/tmp/heartbeat_daemon.py"
 # usually reachable via private google access even when metadata is gone — and
 # if even GCS is unreachable, the watchdog detects the stale blob and kills.
 HEARTBEAT_SIDECAR="/tmp/vm_heartbeat_sidecar.sh"
-if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm_heartbeat_sidecar.sh" "$HEARTBEAT_SIDECAR" 2>/dev/null; then
+if timeout 60 gcloud storage cp "gs://${CODE_BUCKET}/vm/vm_heartbeat_sidecar.sh" "$HEARTBEAT_SIDECAR" --quiet 2>/dev/null; then
   chmod +x "$HEARTBEAT_SIDECAR"
   nohup bash "$HEARTBEAT_SIDECAR" "$VM_NAME_SELF" >/dev/null 2>&1 &
   log "GCS-blob heartbeat sidecar started (60s interval, gs://${CODE_BUCKET}/vm-heartbeat/${VM_NAME_SELF}.txt)"
@@ -1113,7 +1115,7 @@ fi
 VM_OOM_MONITOR="$(_meta VM_OOM_MONITOR "")"
 if [[ "$VM_OOM_MONITOR" == "true" ]]; then
   OOM_MONITOR_SCRIPT="/tmp/oom-hang-monitor.sh"
-  if gsutil -q cp "gs://${CODE_BUCKET}/vm/oom-hang-monitor.sh" "$OOM_MONITOR_SCRIPT" 2>/dev/null; then
+  if timeout 60 gcloud storage cp "gs://${CODE_BUCKET}/vm/oom-hang-monitor.sh" "$OOM_MONITOR_SCRIPT" --quiet 2>/dev/null; then
     chmod +x "$OOM_MONITOR_SCRIPT"
     OOM_MONITOR_LOCAL_LOG="$LOGS/oom-hang-monitor.log"
     OOM_MONITOR_GCS_URI="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SELF}/oom-hang-monitor.log"
@@ -1126,19 +1128,19 @@ fi
 
 # Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
 # monitor any VM task from outside even when SSH is broken).
-if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
+if timeout 60 gcloud storage cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" --quiet 2>/dev/null; then
   chmod +x "$TEE_WRAPPER"
   log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
   # The wrapper looks for deployment_heartbeat.py AND heartbeat_daemon.py in
   # its own directory. The daemon owns the 60s Pub/Sub heartbeat loop + 30s
   # GCS log upload — without it we get no streaming events and no GCS log
   # tail (would have to SSH to the VM to see progress).
-  if gsutil -q cp "gs://${CODE_BUCKET}/vm/deployment_heartbeat.py" "$HEARTBEAT_HELPER" 2>/dev/null; then
+  if timeout 60 gcloud storage cp "gs://${CODE_BUCKET}/vm/deployment_heartbeat.py" "$HEARTBEAT_HELPER" --quiet 2>/dev/null; then
     log "Deployment heartbeat helper downloaded → $HEARTBEAT_HELPER"
   else
     log "WARNING: deployment_heartbeat.py not found in GCS — heartbeats will be skipped"
   fi
-  if gsutil -q cp "gs://${CODE_BUCKET}/vm/heartbeat_daemon.py" "$HEARTBEAT_DAEMON" 2>/dev/null; then
+  if timeout 60 gcloud storage cp "gs://${CODE_BUCKET}/vm/heartbeat_daemon.py" "$HEARTBEAT_DAEMON" --quiet 2>/dev/null; then
     log "Heartbeat daemon downloaded → $HEARTBEAT_DAEMON"
   else
     log "WARNING: heartbeat_daemon.py not found in GCS — observability disabled (no GCS log, no Pub/Sub events)"
@@ -1273,7 +1275,7 @@ if [[ "${VM_SERVICE:-}" == "market_tick_data_service" && "${VM_OPERATION:-}" == 
             _BUCKET="market-data-tick-${_AG_LOWER}-${DEPLOYMENT_ENV_SHORT:-prd}-${GCP_PROJECT_ID:-central-element-323112}"
             _INDEX_URI="gs://${_BUCKET}/_index/availability_index.parquet"
             log "OOM preflight: checking ${_INDEX_URI} mtime against budget ${_BUDGET_SEC}s"
-            _INDEX_UPDATED=$(gsutil ls -L "${_INDEX_URI}" 2>/dev/null | awk -F': +' '/Update time/{print $2; exit}')
+            _INDEX_UPDATED=$(timeout 30 gcloud storage objects describe "${_INDEX_URI}" --format='value(update_time)' 2>/dev/null)
             if [[ -z "${_INDEX_UPDATED}" ]]; then
                 log "OOM preflight WARNING: ${_INDEX_URI} not found — consolidator hasn't materialised the index yet (proceeding; reader will use per-VM fallback)"
             else
@@ -1744,10 +1746,52 @@ print('true' if '${VM_VENUE^^}' in ONCHAIN_PERP_VENUE_CHAIN else 'false')
   VM_BATCH_DATE_CONCURRENCY=$(_meta VM_BATCH_DATE_CONCURRENCY)
   [[ -n "$VM_BATCH_DATE_CONCURRENCY" ]] && BASE_CLI="$BASE_CLI --batch-date-concurrency $VM_BATCH_DATE_CONCURRENCY"
 
+  # SPORTS unscoped odds_api per-league fan-out
+  # (sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md): an unscoped (no
+  # --league) sports MTDS backfill iterates ALL ~30 Prediction-tier leagues in ONE
+  # Python process, accumulating every league's rows into a single in-memory
+  # all_rows list before writing (OddsApiAdapter._fetch_all_leagues,
+  # market-tick-data-service) — confirmed OOM (exit=137, RSS 4.6->30.7GiB in ~4min)
+  # on a SPOT VM with no memory cap (unlike the live Cloud Run Job's 16Gi stop-gap).
+  # The already-validated fix for the LIVE dispatch path (deployment-service@4e0e03d)
+  # scopes via --league — mirror that here rather than touch the adapter's
+  # accumulation internals (a prior investigation, sports_fast_t1_recon_oom_live_
+  # capture_outage_2026_08_01.md, explicitly judged a deeper streaming-write refactor
+  # too risky for a live P0: a wrong league-id-format assumption could convert a
+  # loud, honest OOM failure into a silent zero-row false-success). Discover the
+  # live Prediction-tier league list and fan the chunk loop out to one subprocess
+  # PER LEAGUE (each bounded to ~1/30th the memory of the unscoped call, and each a
+  # fresh process so nothing carries over between leagues) instead of one process
+  # for all leagues at once. Activates ONLY when VM_ASSET_GROUP=sports AND VM_VENUE
+  # is empty (odds_api auto-routes, no venue override) AND VM_LEAGUE is empty (an
+  # explicit --league already scopes safely) — every other launcher/asset_group/
+  # venue/an explicitly-scoped sports run is untouched (LEAGUES_CSV stays empty,
+  # the loop below runs exactly once with no --league, byte-identical to before).
+  _SPORTS_LEAGUE_CSV=""
+  if [[ "$_AG_LOWER_MTDS" == "sports" && -z "$VM_VENUE" && -z "$VM_LEAGUE" ]]; then
+    _SPORTS_LEAGUE_CSV=$("$VENV/bin/python" -c "
+from unified_api_contracts.sports import DEFAULT_CLASSIFICATION_REGISTRY, get_league_by_api_football_id
+ids = []
+for lg in DEFAULT_CLASSIFICATION_REGISTRY.get_prediction_leagues():
+    if not lg.odds_api_name:
+        continue
+    resolved = get_league_by_api_football_id(lg.league_id) if isinstance(lg.league_id, int) else None
+    canonical = str(getattr(resolved, 'league_id', '')) if resolved is not None else ''
+    ids.append(canonical or lg.name.upper().replace(' ', '_'))
+print(','.join(ids))
+" 2>/dev/null || echo "")
+    if [[ -n "$_SPORTS_LEAGUE_CSV" ]]; then
+      log "mtds-backfill: unscoped sports odds fetch detected — fanning out to per-league invocations ($(echo "$_SPORTS_LEAGUE_CSV" | tr ',' '\n' | wc -l | tr -d ' ') leagues) to bound memory per-process, see sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md"
+    else
+      log "mtds-backfill: sports per-league fan-out discovery failed or returned empty — falling back to the original unscoped single-process call (may OOM on a wide window, see sports_mtds_backfill_vm_unscoped_fetch_oom_2026_08_06.md)"
+    fi
+  fi
+
   CHUNK_SCRIPT="$WORKSPACE/mtds_chunk_loop.sh"
   cat >"$CHUNK_SCRIPT" <<MTDS_CHUNK_LOOP_EOF
 #!/usr/bin/env bash
 set -uo pipefail
+LEAGUES_CSV="${_SPORTS_LEAGUE_CSV:-}"
 CHUNKS=\$("$VENV/bin/python" -c "
 from datetime import datetime, timedelta
 start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
@@ -1761,55 +1805,71 @@ while cur <= end:
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
 CHUNK_NUM=0
-# Tracks whether any EARLIER chunk in this run failed — gates the checkpoint below so
-# a later chunk's success can never paper over an earlier gap (see the checkpoint
-# comment further down for why this matters).
+# Tracks whether any EARLIER chunk (or, for the per-league fan-out, any earlier
+# league within the current chunk) failed — gates the checkpoint below so a later
+# chunk's success can never paper over an earlier gap (see the checkpoint comment
+# further down for why this matters).
 HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  # Per-chunk VM_NAME suffix (subprocess-scoped only — the outer VM_NAME the
-  # tee-wrapper/heartbeat use for vm-logs/PROGRESS.json is untouched) bounds
-  # unified-trading-library ManifestWriter's per-VM shard
-  # (_index/per_vm/{VM_NAME}.parquet) to just THIS chunk's rows instead of
-  # accumulating the whole multi-chunk backfill into one ever-growing shard —
-  # the same OOM root cause + fix already applied to instruments_chunk_loop.sh
-  # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
-  # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
-  # Output is ALSO teed to a scratch file (stdout still flows through unchanged for the
-  # outer tee/watchdog) so the partial-payload check below can grep the CLI's own
-  # "Batch complete: N results collected" line; PIPESTATUS[0] preserves the real
-  # subprocess exit code through the pipe.
-  CHUNK_OUT=\$(mktemp)
-  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
-    "$VENV/bin/python" -m market_tick_data_service \\
-      $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$CHUNK_OUT"
-  CHUNK_RC=\${PIPESTATUS[0]}
-  # Partial-payload-loss detection
-  # (mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md): a chunk where
-  # SOME date-payloads fail and SOME succeed still exits 0 (the CLI's batch driver only
-  # returns non-zero when EVERY payload in the batch failed), so CHUNK_RC alone can't see
-  # a partial gap. Compare the CLI's own results-collected count against this chunk's
-  # expected day-count and treat a shortfall the same as CHUNK_RC!=0 below.
-  RESULTS_COLLECTED=\$(grep -oE 'Batch complete: [0-9]+ results collected' "\$CHUNK_OUT" | tail -1 | grep -oE '[0-9]+' || true)
-  rm -f "\$CHUNK_OUT"
-  # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
-  # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
-  # exit left no log signal at all beyond staleness, see
-  # mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md). Log a clear, greppable
-  # marker either way and CONTINUE to the next chunk (shard-level failure isolation —
-  # one bad chunk must not silently wedge the whole multi-chunk run).
-  if [[ \$CHUNK_RC -eq 137 ]]; then
-    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    HAD_FAILURE=1
-  elif [[ \$CHUNK_RC -ne 0 ]]; then
-    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    HAD_FAILURE=1
-  elif [[ -n "\$RESULTS_COLLECTED" && \$RESULTS_COLLECTED -lt \$EXPECTED_DAYS ]]; then
-    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=0 reason=PARTIAL_PAYLOAD_LOSS results_collected=\${RESULTS_COLLECTED} expected=\${EXPECTED_DAYS} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    HAD_FAILURE=1
+  if [[ -n "\$LEAGUES_CSV" ]]; then
+    IFS=',' read -ra CHUNK_LEAGUES <<< "\$LEAGUES_CSV"
+  else
+    CHUNK_LEAGUES=("")
   fi
+  for LEAGUE in "\${CHUNK_LEAGUES[@]}"; do
+    LEAGUE_SUFFIX=""
+    LEAGUE_FLAG=()
+    if [[ -n "\$LEAGUE" ]]; then
+      LEAGUE_SUFFIX="-\${LEAGUE}"
+      LEAGUE_FLAG=(--league "\$LEAGUE")
+      echo "--- Chunk \${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE}: \${CS} → \${CE} ---"
+    fi
+    # Per-chunk (+ per-league, when fanned out) VM_NAME suffix (subprocess-scoped
+    # only — the outer VM_NAME the tee-wrapper/heartbeat use for
+    # vm-logs/PROGRESS.json is untouched) bounds unified-trading-library
+    # ManifestWriter's per-VM shard (_index/per_vm/{VM_NAME}.parquet) to just THIS
+    # chunk's (+ league's) rows instead of accumulating the whole multi-chunk
+    # backfill into one ever-growing shard — the same OOM root cause + fix already
+    # applied to instruments_chunk_loop.sh
+    # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
+    # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
+    # Output is ALSO teed to a scratch file (stdout still flows through unchanged for the
+    # outer tee/watchdog) so the partial-payload check below can grep the CLI's own
+    # "Batch complete: N results collected" line; PIPESTATUS[0] preserves the real
+    # subprocess exit code through the pipe.
+    CHUNK_OUT=\$(mktemp)
+    VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}\${LEAGUE_SUFFIX}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+      "$VENV/bin/python" -m market_tick_data_service \\
+        $BASE_CLI "\${LEAGUE_FLAG[@]}" \\
+        --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$CHUNK_OUT"
+    CHUNK_RC=\${PIPESTATUS[0]}
+    # Partial-payload-loss detection
+    # (mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md): a chunk where
+    # SOME date-payloads fail and SOME succeed still exits 0 (the CLI's batch driver only
+    # returns non-zero when EVERY payload in the batch failed), so CHUNK_RC alone can't see
+    # a partial gap. Compare the CLI's own results-collected count against this chunk's
+    # expected day-count and treat a shortfall the same as CHUNK_RC!=0 below.
+    RESULTS_COLLECTED=\$(grep -oE 'Batch complete: [0-9]+ results collected' "\$CHUNK_OUT" | tail -1 | grep -oE '[0-9]+' || true)
+    rm -f "\$CHUNK_OUT"
+    # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
+    # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
+    # exit left no log signal at all beyond staleness, see
+    # mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md). Log a clear, greppable
+    # marker either way and CONTINUE to the next league/chunk (shard-level failure
+    # isolation — one bad league/chunk must not silently wedge the whole run).
+    if [[ \$CHUNK_RC -eq 137 ]]; then
+      echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE:-ALL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      HAD_FAILURE=1
+    elif [[ \$CHUNK_RC -ne 0 ]]; then
+      echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE:-ALL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      HAD_FAILURE=1
+    elif [[ -n "\$RESULTS_COLLECTED" && \$RESULTS_COLLECTED -lt \$EXPECTED_DAYS ]]; then
+      echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} league=\${LEAGUE:-ALL} range=\${CS}→\${CE} exit=0 reason=PARTIAL_PAYLOAD_LOSS results_collected=\${RESULTS_COLLECTED} expected=\${EXPECTED_DAYS} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      HAD_FAILURE=1
+    fi
+  done
   # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
   # P2 "no-checkpoint launcher families"): this generic download branch aggregates rows
   # via PartitionedGroupWriter.record_captured_from_counts, which does NOT thread through
@@ -1817,11 +1877,13 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
   # per-row record_captured path does), so this shell chunk-loop was silently emitting NO
   # PROGRESS.json checkpoint. Emit the marker at THIS granularity instead — the
   # vm-exec-with-gcs-tee.sh watchdog greps stdout for it regardless of which layer wrote
-  # it. Gated on BOTH this chunk succeeding AND no EARLIER chunk having failed: chunks
-  # are processed in date order but a later chunk can still complete after an earlier one
-  # failed (shard-level isolation keeps the loop going), and advancing the checkpoint past
-  # a later date would make a preemption relaunch skip the unwritten earlier gap forever.
-  if [[ \$CHUNK_RC -eq 0 && \$HAD_FAILURE -eq 0 ]]; then
+  # it. Gated on no failure across EVERY league processed for this chunk (the per-league
+  # loop above sets HAD_FAILURE the moment any single league fails) AND no EARLIER chunk
+  # having failed: chunks are processed in date order but a later chunk can still complete
+  # after an earlier one failed (shard-level isolation keeps the loop going), and
+  # advancing the checkpoint past a later date would make a preemption relaunch skip the
+  # unwritten earlier gap forever.
+  if [[ \$HAD_FAILURE -eq 0 ]]; then
     echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
   fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -2498,29 +2560,68 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
     exit 1
   fi
 
+  # Consolidated topology (operator-ruled 2026-08-06, option (i)): run
+  # MDPS_SHARDS_PER_WORKER shards per worker PROCESS instead of one process per
+  # shard (the 2026-07-29 option (a) topology that OOM-killed a worker within
+  # ~2.5 min at CEFI's 117-shard scale and is categorically infeasible at
+  # DeFi's 3,535). Each grouped worker passes its shards as a comma-separated
+  # MDPS_SHARD_SPEC, bridged to --shard-specs by cli/main.py — each shard
+  # becomes its own async aggregator + DISTINCT Redis consumer in the shared
+  # "mdps" group (market-data-processing-service@df45ef8). Default 1 = today's
+  # exact one-process-per-shard behaviour.
+  _mfl_shards_per_worker="$(_meta MDPS_SHARDS_PER_WORKER 1)"
+  case "$_mfl_shards_per_worker" in
+    '' | *[!0-9]*)
+      _mfl_shards_per_worker=1
+      ;;
+  esac
+  [[ "$_mfl_shards_per_worker" -lt 1 ]] && _mfl_shards_per_worker=1
+
   _MFL_SCRIPT="$WORKSPACE/mdps_features_live_fanout.sh"
   {
     echo '#!/usr/bin/env bash'
     echo 'set -uo pipefail  # NOT -e: a false `[[ rc -ne 0 ]] &&` must not exit the supervisor'
     echo 'PIDS=()'
     _mfl_k=0
+    _mfl_batch_specs=()
+    # Flush the accumulated shard batch as ONE worker process. Defined inside
+    # this block so its printf goes through the same >"$_MFL_SCRIPT" redirect.
+    _mfl_flush() {
+      # Explicit `return 0` on the empty-batch guard: under `set -e` a bare
+      # `[[ ... ]] && return` would exit the function with status 1, which the
+      # final unconditional `_mfl_flush` call would then abort the whole script
+      # on for an asset_group with ZERO MDPS shards but live features families
+      # (e.g. prediction/sports — mdps_mvp_universe returns an empty frozenset).
+      if [[ ${#_mfl_batch_specs[@]} -eq 0 ]]; then
+        return 0
+      fi
+      printf 'echo "[mdps-features-live] MDPS worker %s (VM_NAME=%s-mdps-p%s) shards=%s"\n' \
+        "$_mfl_k" "$VM_NAME_SELF" "$_mfl_k" "${#_mfl_batch_specs[@]}"
+      local _mfl_joined
+      _mfl_joined=$(IFS=,; printf '%s' "${_mfl_batch_specs[*]}")
+      # Real entry point is ServiceBootstrap (`python -m market_data_processing_service`),
+      # whose own top-level --operation axis has choices={process} only — the legacy
+      # streaming-aggregation operation + shard-specs bridge in via the MDPS_OPERATION /
+      # MDPS_SHARD_SPEC env vars (_bridge_operation_and_build_continuous_args(),
+      # market-data-processing-service@213e133 + the multi-spec --shard-specs bridge
+      # from the 2026-08-06 consolidation), never as positional/flag argv the real
+      # entry point can't reach. See mdps_features_live_streaming_aggregation_never_actually_invocable
+      # issue doc, 2026-08-04.
+      printf 'VM_NAME="%s-mdps-p%s" MDPS_OPERATION=streaming-aggregation MDPS_SHARD_SPEC=%s "%s" -m market_data_processing_service --operation process --mode live --start-date %s --end-date %s &\n' \
+        "$VM_NAME_SELF" "$_mfl_k" "$_mfl_joined" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY"
+      echo 'PIDS+=($!)'
+      _mfl_k=$((_mfl_k + 1))
+      _mfl_batch_specs=()
+    }
     for _mfl_shard in "${_MDPS_SHARDS[@]}"; do
       _mfl_venue="${_mfl_shard%%:*}"
       _mfl_dtype="${_mfl_shard##*:}"
-      printf 'echo "[mdps-features-live] MDPS worker %s (VM_NAME=%s-mdps-p%s) shard-spec=%s:%s:%s"\n' \
-        "$_mfl_k" "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype"
-      # Real entry point is ServiceBootstrap (`python -m market_data_processing_service`),
-      # whose own top-level --operation axis has choices={process} only — the legacy
-      # streaming-aggregation operation + --shard-spec bridge in via the MDPS_OPERATION /
-      # MDPS_SHARD_SPEC env vars (_bridge_operation_and_build_continuous_args(),
-      # market-data-processing-service@213e133), never as positional/flag argv the real
-      # entry point can't reach. See mdps_features_live_streaming_aggregation_never_actually_invocable
-      # issue doc, 2026-08-04.
-      printf 'VM_NAME="%s-mdps-p%s" MDPS_OPERATION=streaming-aggregation MDPS_SHARD_SPEC=%s:%s:%s "%s" -m market_data_processing_service --operation process --mode live --start-date %s --end-date %s &\n' \
-        "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY"
-      echo 'PIDS+=($!)'
-      _mfl_k=$((_mfl_k + 1))
+      _mfl_batch_specs+=("${_AG_LOWER}:${_mfl_venue}:${_mfl_dtype}")
+      if [[ ${#_mfl_batch_specs[@]} -ge "$_mfl_shards_per_worker" ]]; then
+        _mfl_flush
+      fi
     done
+    _mfl_flush
     for _mfl_family in "${_LIVE_FAMILIES[@]}"; do
       # Mirrors launch-features-vm.sh's per-family CLI-flag construction: calendar's CLI
       # does not accept --asset-group (global output); delta_one/volatility/onchain accept
