@@ -204,6 +204,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "mtds-position-data-": "launch-mtds-position-data-backfill-vm.sh",
     "mtds-liquidation-events-": "launch-mtds-liquidation-events-backfill-vm.sh",
     "mtds-flash-loan-events-": "launch-mtds-flash-loan-events-backfill-vm.sh",
+    "mtds-bridge-events-": "launch-mtds-bridge-events-backfill-vm.sh",
     "mtds-risk-params-": "launch-mtds-risk-params-backfill-vm.sh",
     "mtds-eigenlayer-rewards-backfill": "launch-mtds-eigenlayer-rewards-backfill-vm.sh",
     # G1.6 (mvp_backfill_defi_onchain_v10_2026_06_27.md): dedicated ORCA/RAYDIUM/
