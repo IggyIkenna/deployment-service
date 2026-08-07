@@ -26,6 +26,7 @@ from unified_trading_library import MaintenanceWindow
 from deployment_service.data_pipeline_monitors import (
     _compute_ops,
     _gcs,
+    cloud_run_job_execution_watcher,
     consolidator_scheduler_watcher,
     escalation,
     exit_code_fleet_monitor,
@@ -4883,3 +4884,174 @@ def test_dp_live_002_suppressed_for_new_vms() -> None:
         min_age_hours=1.0,
     )
     assert len(result) == 0
+
+
+# ── DP-WATCHER-006: cloud_run_job_execution_watcher ──────────────────────────
+
+def _make_target(
+    name: str,
+    service: str = "test-service",
+    asset_group: str = "",
+) -> object:
+    """Return a minimal DeploymentTarget-like object for watcher tests."""
+    from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS  # noqa: imports-inside-functions
+
+    for t in CLOUD_RUN_JOBS:
+        if t.name == name:
+            return t
+    # Fall back to a real job to avoid coupling to private DeploymentTarget constructor.
+    return CLOUD_RUN_JOBS[0]
+
+
+def test_dp_watcher_006_fires_on_recent_failed_execution(monkeypatch) -> None:
+    """DP-WATCHER-006 emits DP_CLOUD_RUN_JOB_EXECUTION_FAILED when a job has a failed execution."""
+    from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS
+
+    findings_emitted: list[object] = []
+
+    def _fake_emit(finding, *, pm_repo_path=None, dry_run=False):
+        findings_emitted.append(finding)
+
+    monkeypatch.setattr(cloud_run_job_execution_watcher, "emit_finding", _fake_emit)
+
+    # Use the first job in the registry.
+    target = CLOUD_RUN_JOBS[0]
+    full_name = f"uts-prod-{target.name}"
+
+    def _reader(names):
+        return {full_name: {"failed_count": 2, "completion_age_min": 90.0, "succeeded_after": False}}
+
+    result = cloud_run_job_execution_watcher.check_cloud_run_job_executions(
+        job_targets=[target],
+        execution_reader=_reader,
+        env_prefix="uts-prod",
+    )
+    assert full_name in result
+    assert result[full_name]["failed_count"] == 2
+    assert len(findings_emitted) == 1
+    finding = findings_emitted[0]
+    assert finding.event == "DP_CLOUD_RUN_JOB_EXECUTION_FAILED"  # type: ignore[attr-defined]
+    assert finding.registry_id == "DP-WATCHER-006"  # type: ignore[attr-defined]
+    assert finding.details["job_name"] == full_name  # type: ignore[attr-defined]
+
+
+def test_dp_watcher_006_no_fire_when_succeeded_after(monkeypatch) -> None:
+    """DP-WATCHER-006 does NOT fire when the job self-recovered (SUCCEEDED after the failure)."""
+    from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS
+
+    findings_emitted: list[object] = []
+    monkeypatch.setattr(cloud_run_job_execution_watcher, "emit_finding", lambda f, **_kw: findings_emitted.append(f))
+
+    target = CLOUD_RUN_JOBS[0]
+    full_name = f"uts-prod-{target.name}"
+
+    def _reader(names):
+        return {full_name: {"failed_count": 1, "completion_age_min": 30.0, "succeeded_after": True}}
+
+    result = cloud_run_job_execution_watcher.check_cloud_run_job_executions(
+        job_targets=[target],
+        execution_reader=_reader,
+        env_prefix="uts-prod",
+    )
+    assert result[full_name] == {}
+    assert len(findings_emitted) == 0
+
+
+def test_dp_watcher_006_no_fire_when_no_recent_failure(monkeypatch) -> None:
+    """DP-WATCHER-006 does NOT fire when the reader returns None (no recent failure)."""
+    from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS
+
+    findings_emitted: list[object] = []
+    monkeypatch.setattr(cloud_run_job_execution_watcher, "emit_finding", lambda f, **_kw: findings_emitted.append(f))
+
+    target = CLOUD_RUN_JOBS[0]
+    full_name = f"uts-prod-{target.name}"
+
+    def _reader(names):
+        return {full_name: None}
+
+    result = cloud_run_job_execution_watcher.check_cloud_run_job_executions(
+        job_targets=[target],
+        execution_reader=_reader,
+        env_prefix="uts-prod",
+    )
+    assert result[full_name] == {}
+    assert len(findings_emitted) == 0
+
+
+def test_dp_watcher_006_consecutive_miss_suppresses_first_sweep(monkeypatch) -> None:
+    """DP-WATCHER-006 does not page on the first sweep when MissTracker needs 2 consecutive misses."""
+    from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS  # noqa: imports-inside-functions
+
+    findings_emitted: list[object] = []
+    monkeypatch.setattr(cloud_run_job_execution_watcher, "emit_finding", lambda f, **_kw: findings_emitted.append(f))
+
+    target = CLOUD_RUN_JOBS[0]
+    full_name = f"uts-prod-{target.name}"
+
+    def _reader(names):
+        return {full_name: {"failed_count": 1, "completion_age_min": 10.0, "succeeded_after": False}}
+
+    tracker = meta_watchers.MissTracker.load(storage_client=FakeStorage({}), log_bucket=LOG_BUCKET)
+    result = cloud_run_job_execution_watcher.check_cloud_run_job_executions(
+        job_targets=[target],
+        execution_reader=_reader,
+        env_prefix="uts-prod",
+        miss_tracker=tracker,
+        min_consecutive=2,
+    )
+    assert result[full_name] == {}
+    assert len(findings_emitted) == 0
+
+
+def test_dp_watcher_006_pages_after_consecutive_miss_threshold(monkeypatch) -> None:
+    """DP-WATCHER-006 pages after reaching the consecutive miss threshold."""
+    from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS  # noqa: imports-inside-functions
+
+    findings_emitted: list[object] = []
+    monkeypatch.setattr(cloud_run_job_execution_watcher, "emit_finding", lambda f, **_kw: findings_emitted.append(f))
+
+    target = CLOUD_RUN_JOBS[0]
+    full_name = f"uts-prod-{target.name}"
+
+    def _reader(names):
+        return {full_name: {"failed_count": 3, "completion_age_min": 120.0, "succeeded_after": False}}
+
+    storage = FakeStorage({})
+    tracker = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    for _ in range(2):
+        cloud_run_job_execution_watcher.check_cloud_run_job_executions(
+            job_targets=[target],
+            execution_reader=_reader,
+            env_prefix="uts-prod",
+            miss_tracker=tracker,
+            min_consecutive=2,
+        )
+    assert len(findings_emitted) == 1
+    assert findings_emitted[0].event == "DP_CLOUD_RUN_JOB_EXECUTION_FAILED"  # type: ignore[attr-defined]
+
+
+def test_dp_watcher_006_all_cloud_run_job_targets_nonempty() -> None:
+    """all_cloud_run_job_targets returns a non-empty tuple of DeploymentTargets."""
+    targets = cloud_run_job_execution_watcher.all_cloud_run_job_targets()
+    assert len(targets) > 0
+    assert all(hasattr(t, "name") and hasattr(t, "service") for t in targets)
+
+
+def test_dp_watcher_006_reader_factory_returns_empty_on_import_error(monkeypatch) -> None:
+    """make_cloud_run_job_execution_reader returns a no-op reader when run_v2 is unavailable."""
+    import importlib as _importlib  # noqa: imports-inside-functions
+
+    _orig = _importlib.import_module
+
+    def _fail_run_v2(name):
+        if "google.cloud.run_v2" in name:
+            raise ImportError("sdk unavailable")
+        return _orig(name)
+
+    monkeypatch.setattr(_importlib, "import_module", _fail_run_v2)
+    reader = cloud_run_job_execution_watcher.make_cloud_run_job_execution_reader(
+        project_id="test-project"
+    )
+    result = reader(["uts-prod-some-job"])
+    assert result == {}
