@@ -1,4 +1,4 @@
-"""Staleness LABELING for DP-FETCH-009 (``DP_RUN_MOSTLY_EMPTY``) attempted_failed cells.
+"""Staleness LABELING and TRAILING-WINDOW computation for DP-FETCH-009 cells.
 
 Split into its own module rather than added to ``meta_watchers.py`` (already at its
 920-line file-size cap — mirrors why ``renag_tracker.py`` / ``known_dead_cells_registry.py``
@@ -8,12 +8,13 @@ Per
 ``plans/active/issues/cefi_high_attempted_failed_batch_cluster_2026_07_23.md``'s
 "Alerting-hygiene question" — CRITICAL-paging a ``(asset_group, data_type)`` cell that has
 sat unchanged for days looks identical, in the alert body, to a cell that JUST failed. This
-module computes the plain FACT the operator needs to tell them apart (how many days since the
-cell's newest ``attempted_failed`` row) and a labeling threshold for annotating the alert
-body/details — it does **not** decide whether to suppress or change paging cadence for a
-stale cell. That is a separate, still-open policy question for the operator/alerting-service
-owner (visible pressure on a known backlog vs. alert fatigue) — this module only makes the
-distinction VISIBLE, deliberately leaving delivery behavior untouched.
+module computes (a) a trailing-window count used by ``_read_attempted_failed_cells`` to gate
+the ``high`` verdict on recent activity only (Option A, RULED 2026-08-06: use a recency
+window instead of lifetime manifest counts so a cell whose root cause is fixed stops paging
+once the fixed-era failures age out — see
+``plans/active/issues/cefi_liquidations_attempted_failed_lifetime_count_stale_2026_07_30.md``),
+and (b) the staleness LABEL the operator needs to distinguish "static backlog" from "fresh
+regression" in the alert body/details.
 """
 
 from __future__ import annotations
@@ -23,9 +24,14 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 
 # A cell whose newest attempted_failed row is at least this many days old is annotated
-# "STATIC BACKLOG" in the alert body/details. Purely a labeling threshold — does NOT gate
-# whether/how often DP_RUN_MOSTLY_EMPTY still pages (see module docstring).
+# "STATIC BACKLOG" in the alert body/details. Purely a labeling threshold.
 STATIC_BACKLOG_STALE_DAYS_THRESHOLD = 1
+
+# Trailing window for the high-attempted_failed threshold decision (Option A, 2026-08-06):
+# only rows with attempted_at within this many days of now count toward the abs/ratio thresholds.
+# A cell whose root cause is fixed stops generating new failures, so its trailing count
+# decays to zero within ATTEMPTED_FAILED_TRAILING_DAYS days of the last fix landing.
+ATTEMPTED_FAILED_TRAILING_DAYS = 14
 
 
 def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> int | None:
@@ -40,6 +46,20 @@ def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> i
         return None
     moment = now or datetime.now(UTC)
     return max(0, (moment - ts.to_pydatetime()).days)
+
+
+def trailing_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
+    """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within
+    ``ATTEMPTED_FAILED_TRAILING_DAYS`` days of ``now``.
+
+    Used by ``_read_attempted_failed_cells`` to compute the trailing-window count that
+    gates the ``high`` verdict (Option A, RULED 2026-08-06). NaT/unparseable rows are
+    False — same fail-safe convention as :func:`recent_activity_mask`.
+    """
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=ATTEMPTED_FAILED_TRAILING_DAYS))
+    return ts >= cutoff
 
 
 def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
