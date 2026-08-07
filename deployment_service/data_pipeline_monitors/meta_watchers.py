@@ -61,6 +61,7 @@ from deployment_service.data_pipeline_monitors.attempted_failed_staleness import
     recent_activity_mask,
     stale_backlog_annotation,
     stale_days_since,
+    trailing_window_mask,
 )
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
@@ -227,6 +228,11 @@ def _cron_miss_key(target: FreshnessTarget) -> str:
 ATTEMPTED_FAILED_ABS_THRESHOLD = 500  # absolute attempted_failed count per (ag, data_type) → page
 ATTEMPTED_FAILED_RATIO_THRESHOLD = 0.10  # attempted_failed / (captured + attempted_failed) → page
 MIN_ATTEMPTED_FAILED_FOR_RATIO = 50  # ratio path ignored below this count (avoid micro-cell noise)
+# Thresholds are evaluated over a TRAILING WINDOW of this many days (attempted_at).  Rows older
+# than the window do not count toward the abs or ratio check, so a cell whose root cause is fixed
+# stops paging once fixed-era failures age out — closes the lifetime-count staleness class
+# (option A, operator ruling 2026-08-06, cefi_liquidations_attempted_failed_lifetime_count_stale).
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 7
 # STATIC_BACKLOG_STALE_DAYS_THRESHOLD: labeling-only constant, see attempted_failed_staleness.py.
 # Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
 AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
@@ -475,6 +481,8 @@ class AttemptedFailedCell:
     max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
     stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
     recent_attempted_failed: int = 0  # attempted_failed rows within STATIC_BACKLOG_STALE_DAYS_THRESHOLD of now
+    trailing_attempted_failed: int = 0  # attempted_failed rows within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS
+    trailing_ratio: float = 0.0  # trailing_attempted_failed / (captured + trailing_attempted_failed)
 
 
 def _read_attempted_failed_cells(
@@ -521,12 +529,21 @@ def _read_attempted_failed_cells(
         attempted_failed = int((dt_mask & failed_mask).sum())
         denom = captured + attempted_failed
         ratio = (attempted_failed / denom) if denom > 0 else 0.0
-        high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
-            attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
-        )
         failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
         max_attempted_at = max(failed_attempted_at, default="")
         recent_attempted_failed = int(recent_activity_mask(failed_attempted_at).sum())
+        # Trailing-window counts drive the high verdict (option A, 2026-08-06): only rows with
+        # attempted_at within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS count toward thresholds.
+        # NaT/empty timestamps → False (not counted), so unknown-timestamp rows never inflate
+        # the trailing count (conservative fail-safe, same convention as recent_activity_mask).
+        tw_mask = trailing_window_mask(failed_attempted_at, days=ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS)
+        trailing_attempted_failed = int(tw_mask.sum())
+        trailing_denom = captured + trailing_attempted_failed
+        trailing_ratio = (trailing_attempted_failed / trailing_denom) if trailing_denom > 0 else 0.0
+        high = trailing_attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
+            trailing_attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO
+            and trailing_ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
+        )
         cells.append(
             AttemptedFailedCell(
                 asset_group=asset_group,
@@ -539,6 +556,8 @@ def _read_attempted_failed_cells(
                 max_attempted_at=max_attempted_at,
                 stale_days=stale_days_since(max_attempted_at),
                 recent_attempted_failed=recent_attempted_failed,
+                trailing_attempted_failed=trailing_attempted_failed,
+                trailing_ratio=trailing_ratio,
             )
         )
     return cells
@@ -665,6 +684,9 @@ def check_high_attempted_failed(
                         "max_attempted_at": cell.max_attempted_at,
                         "stale_days": cell.stale_days,
                         "recent_attempted_failed": cell.recent_attempted_failed,
+                        "trailing_attempted_failed": cell.trailing_attempted_failed,
+                        "trailing_ratio": round(cell.trailing_ratio, 4),
+                        "trailing_window_days": ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
                         "is_static_backlog": is_static_backlog,
                     },
                     registry_id="DP-FETCH-009",

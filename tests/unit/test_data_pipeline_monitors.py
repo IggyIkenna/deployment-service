@@ -2590,7 +2590,8 @@ def test_high_attempted_failed_pages_on_abs_threshold(monkeypatch):
     # A backfill that exited 0 / captured climbed but wrote >ABS_THRESHOLD failed
     # cells for one data_type → CRITICAL page (the invisible-failure gap closed).
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
@@ -2602,13 +2603,14 @@ def test_high_attempted_failed_pages_on_ratio_threshold(monkeypatch):
     # Small corpus: below the abs floor but ratio crosses (and count >= the
     # MIN_ATTEMPTED_FAILED_FOR_RATIO micro-cell guard) → pages.
     n_failed = meta_watchers.MIN_ATTEMPTED_FAILED_FOR_RATIO + 10  # >= guard, < abs floor
-    rows = [("ohlcv", "captured")] * 20 + [("ohlcv", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("ohlcv", "captured")] * 20 + [("ohlcv", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
     cell = next(c for c in cells if c.data_type == "ohlcv")
-    assert cell.attempted_failed < meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD  # abs floor NOT crossed
-    assert cell.ratio >= meta_watchers.ATTEMPTED_FAILED_RATIO_THRESHOLD
+    assert cell.trailing_attempted_failed < meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD  # abs floor NOT crossed
+    assert cell.trailing_ratio >= meta_watchers.ATTEMPTED_FAILED_RATIO_THRESHOLD
     assert cell.high
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
@@ -2638,32 +2640,39 @@ def test_high_attempted_failed_ratio_guard_ignores_micro_cell(monkeypatch):
 # ── DP-FETCH-009 known-dead suppression (tradfi_ohlcv_attempted_failed_cluster_2026_07_23.md) ──
 
 
-def test_known_dead_cell_suppressed_despite_crossing_threshold(monkeypatch):
-    # The registered CBOE ohlcv_15m cell: high (crosses ABS_THRESHOLD) but every row's
-    # attempted_at is BEFORE the registered narrowing date → suppressed, never pages.
+def test_known_dead_cell_old_failures_outside_trailing_window_not_high(monkeypatch):
+    # The registered CBOE ohlcv_15m cell: all failures are outside the trailing window
+    # → trailing count is 0 → not high → no page. The known_dead registry correctly
+    # classifies the cell; the trailing-window threshold closes the lifetime-count
+    # paging class (option A, 2026-08-06) before known_dead is even consulted.
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
     rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
     cell = next(c for c in cells if c.data_type == "ohlcv_15m")
-    assert cell.high  # crosses the threshold ...
-    assert cell.known_dead  # ... but is the registered known-dead cell
-    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)  # so it never pages
+    # Lifetime count crosses the threshold; trailing count is zero (all rows are old).
+    assert cell.attempted_failed >= meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD
+    assert cell.trailing_attempted_failed == 0
+    assert not cell.high  # trailing window correctly suppresses old-era failures
+    assert cell.known_dead  # registry also classifies this cell as known-dead
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
 
 
-def test_known_dead_cell_with_new_activity_still_pages(monkeypatch):
-    # Same registered cell, but ONE row carries an attempted_at AFTER the narrowing
-    # date — genuinely new activity → known_dead must clear and the cell must page.
+def test_known_dead_cell_with_fresh_regression_pages(monkeypatch):
+    # Same registered cell, but the trailing window contains >ABS_THRESHOLD fresh failures
+    # AFTER the narrowing date — genuinely new regression → known_dead clears and pages.
     n_old = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 4
+    n_fresh = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 1
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_old
-    rows.append(("ohlcv_15m", "attempted_failed", "2026-07-20T00:00:00Z"))
+    rows += [("ohlcv_15m", "attempted_failed", fresh_ts)] * n_fresh
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
     cell = next(c for c in cells if c.data_type == "ohlcv_15m")
-    assert cell.high
-    assert not cell.known_dead
+    assert not cell.known_dead  # fresh activity after narrowing_at clears known-dead
+    assert cell.high  # trailing count exceeds threshold → genuine fresh regression pages
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
 
@@ -2671,7 +2680,8 @@ def test_unregistered_cell_never_known_dead(monkeypatch):
     # A high cell for a (asset_group, data_type) NOT in the registry must page exactly
     # as before this change — the registry is opt-in, never a blanket suppression.
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
@@ -2727,12 +2737,29 @@ def test_stale_days_none_for_empty_attempted_at(monkeypatch):
     assert cell.stale_days is None
 
 
-def test_stale_backlog_annotated_in_finding_details_not_suppressed(monkeypatch):
-    # The STATIC BACKLOG label reaches the alert's details/summary, but the cell still
-    # pages exactly as before — labeling is additive, suppression policy is untouched.
-    old_ts = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+def test_old_failures_beyond_trailing_window_do_not_page(monkeypatch):
+    # Option A core test: failures older than ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS must NOT
+    # count toward the threshold — a cell whose root-cause bug was fixed stops paging once
+    # fixed-era failures age out of the 7-day window (operator ruling 2026-08-06).
+    ten_days_ago = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "attempted_failed", old_ts)] * n_failed
+    rows = [("trades", "attempted_failed", ten_days_ago)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.attempted_failed >= meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD
+    assert cell.trailing_attempted_failed == 0  # all failures are outside the trailing window
+    assert not cell.high  # old failures do not trigger paging
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+def test_stale_backlog_annotated_in_finding_details_not_suppressed(monkeypatch):
+    # The STATIC BACKLOG label reaches the alert's details/summary for cells within the
+    # trailing window (days 1-7) — labeling is additive, suppression policy is untouched.
+    five_days_ago = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", five_days_ago)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     captured_details: list[dict] = []
     captured_summaries: list[str] = []
@@ -2749,13 +2776,14 @@ def test_stale_backlog_annotated_in_finding_details_not_suppressed(monkeypatch):
     monkeypatch.setattr(meta_watchers, "_emit", _capture_emit)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
     cell = next(c for c in cells if c.data_type == "trades")
-    assert cell.high  # still pages — labeling never suppresses
+    assert cell.high  # within trailing window and above threshold → pages
+    assert cell.stale_days >= 4  # older than 1-day STATIC_BACKLOG threshold → labelled stale
     dp_details = [d for d in captured_details if d.get("data_type") == "trades"]
     assert dp_details, "DP_RUN_MOSTLY_EMPTY finding should carry data_type=trades"
     d = dp_details[0]
     assert d["is_static_backlog"] is True
-    assert d["stale_days"] >= 9
-    assert d["max_attempted_at"] == old_ts
+    assert d["stale_days"] >= 4
+    assert d["max_attempted_at"] == five_days_ago
     assert any("STATIC BACKLOG" in s for s in captured_summaries)
 
 
@@ -2808,7 +2836,8 @@ def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_seco
     # A SINGLE high sweep (a transient consolidator blip) must NOT page; only a
     # SUSTAINED high condition (>= min_consecutive sweeps) does. Mirrors the catalogue gate.
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     # Sweep 1 — first high → suppressed.
@@ -2830,7 +2859,8 @@ def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_seco
 def test_high_attempted_failed_no_tracker_pages_immediately(monkeypatch):
     # Back-compat: with no miss_tracker, a high cell pages on the FIRST sweep.
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
@@ -2891,7 +2921,8 @@ def test_high_attempted_failed_renag_first_emission_after_onset_fires_immediatel
     # tracker has NEVER recorded this cell's key before, so its first-ever alert
     # fires on that SAME sweep (no extra cooldown wait stacked on top of onset).
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     meta_watchers.reset_emitted_tracker()
@@ -2932,7 +2963,8 @@ def test_high_attempted_failed_renag_suppresses_within_cooldown(monkeypatch):
     # must NOT re-emit — but the cell must still be reported as genuinely high (the
     # suppression is a Slack-page decision, not a blindness to the condition).
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     key = meta_watchers._high_attempted_failed_miss_key("sports", "trades")
@@ -2965,7 +2997,8 @@ def test_high_attempted_failed_renag_reemits_after_cooldown_elapses(monkeypatch)
     # still-HIGH cell re-emits (CRITICAL still pages — this is re-nag, not permanent
     # silence).
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     key = meta_watchers._high_attempted_failed_miss_key("sports", "trades")
@@ -3000,7 +3033,8 @@ def test_high_attempted_failed_renag_cleared_on_resolve_allows_immediate_fresh_o
     # a LATER fresh onset on the SAME cell must fire immediately — not blocked by
     # stale re-nag state left over from the prior incident.
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    high_rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    high_rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", fresh_ts)] * n_failed
     clean_rows = [("trades", "captured")] * 100
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(high_rows), 0.0)})
     emitted: list[tuple[str, str]] = []

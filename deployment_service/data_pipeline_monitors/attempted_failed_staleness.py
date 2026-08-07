@@ -55,6 +55,17 @@ def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None
     return ts >= cutoff
 
 
+def trailing_window_mask(attempted_at: pd.Series, *, days: int, now: datetime | None = None) -> pd.Series:
+    """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within ``days``
+    of ``now``. NaT/unparseable rows are False (conservative: an unknown timestamp is not
+    counted as recent). Used for the DP-FETCH-009 trailing-window threshold so that a cell
+    whose root cause is fixed stops paging once fixed-era failures age out of the window."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=days))
+    return ts >= cutoff
+
+
 def stale_backlog_annotation(
     stale_days: int | None,
     *,
