@@ -46,9 +46,11 @@ from unified_trading_library import (
 )
 from unified_trading_library.cloud_interface import get_compute_engine_client  # noqa: qg-deep-import
 
+from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS as _CLOUD_RUN_JOBS
 from deployment_service.data_pipeline_monitors import (
     _compute_ops,
     _gcs,
+    cloud_run_job_failure_watcher,
     consolidator_oom_watcher,
     consolidator_scheduler_watcher,
     exit_code_fleet_monitor,
@@ -861,6 +863,25 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 index_age_reader=consolidator_oom_watcher.make_consolidator_index_age_reader(
                     storage_client, _market_data_bucket
+                ),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-WATCHER-006: generic Cloud Run Job failure detector — covers every job in
+            # CLOUD_RUN_JOBS except manifest-consolidator-* (DP-WATCHER-005 owns those).
+            # Emits CLOUD_RUN_JOB_FAILED (PAGE_OPERATOR, CRITICAL) when the LATEST
+            # completed execution of a job has failed_count > 0, gated on MissTracker.
+            # Issue: infra_health_audit_alert_coverage_gaps_2026_08_07.md § (A) item 2.
+            _crj_failure_stems = [
+                job.name
+                for job in _CLOUD_RUN_JOBS
+                if not job.name.startswith("manifest-consolidator-")
+            ]
+            cloud_run_job_failure_watcher.check_cloud_run_job_failures(
+                job_stems=_crj_failure_stems,
+                execution_reader=cloud_run_job_failure_watcher.make_cloud_run_job_execution_reader(
+                    project_id=_project_id(), env_prefix=_scheduler_env_prefix()
                 ),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,

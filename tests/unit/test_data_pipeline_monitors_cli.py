@@ -464,6 +464,13 @@ def test_main_meta_mode_dry_run(monkeypatch):
         "make_consolidator_execution_oom_reader",
         lambda project_id, env_prefix="", location="asia-northeast1": lambda _ags: {},
     )
+    # DP-WATCHER-006 generic Cloud Run Job failure reader (google-cloud-run, same
+    # shape) — stub to keep the test credential-free + network-free.
+    monkeypatch.setattr(
+        cli.cloud_run_job_failure_watcher,
+        "make_cloud_run_job_execution_reader",
+        lambda project_id, env_prefix="", location="asia-northeast1": lambda _stems: {},
+    )
     rc = cli.main(["--mode", "meta", "--dry-run"])
     assert rc == 0
 
