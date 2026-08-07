@@ -49,6 +49,7 @@ from unified_trading_library.cloud_interface import get_compute_engine_client  #
 from deployment_service.data_pipeline_monitors import (
     _compute_ops,
     _gcs,
+    cloud_run_service_watcher,
     consolidator_oom_watcher,
     consolidator_scheduler_watcher,
     exit_code_fleet_monitor,
@@ -911,6 +912,17 @@ def main(argv: list[str] | None = None) -> int:
                 project_id=_project_id(),
                 location=stale_image_watcher.ARTIFACT_REGISTRY_LOCATION,
                 artifact_repository=stale_image_watcher.ARTIFACT_REGISTRY_REPO,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-VM-012: Cloud Run Service liveness/OOM check (infra_health_audit_alert_coverage_gaps_2026_08_07.md
+            # finding A — market-data-query-service / central-market-data-tardis-loader /
+            # uts-prod-data-status-rollup-svc were silently broken for 9.5-19 months).
+            cloud_run_service_watcher.check_cloud_run_service_liveness(
+                service_names=cloud_run_service_watcher.service_names_from_registry(),
+                condition_reader=cloud_run_service_watcher.make_service_condition_reader(),
+                project_id=_project_id(),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
