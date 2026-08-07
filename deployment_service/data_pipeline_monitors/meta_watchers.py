@@ -58,9 +58,11 @@ from deployment_service.data_pipeline_monitors._miss_tracker import (
     MissTracker,
 )
 from deployment_service.data_pipeline_monitors.attempted_failed_staleness import (
+    ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
     recent_activity_mask,
     stale_backlog_annotation,
     stale_days_since,
+    trailing_window_mask,
 )
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
@@ -468,13 +470,14 @@ class AttemptedFailedCell:
     asset_group: str
     data_type: str
     captured: int
-    attempted_failed: int
-    ratio: float  # attempted_failed / (captured + attempted_failed), 0.0 when denom is 0
-    high: bool  # crossed the abs OR ratio threshold (a real failure batch)
+    attempted_failed: int  # lifetime total (context/reporting; threshold uses trailing_attempted_failed)
+    ratio: float  # trailing_attempted_failed / (captured + attempted_failed); 0.0 when denom is 0
+    high: bool  # crossed the abs OR ratio threshold within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS
     known_dead: bool = False  # registered dead cell, no activity since narrowing (known_dead_cells_registry.py)
     max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
     stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
     recent_attempted_failed: int = 0  # attempted_failed rows within STATIC_BACKLOG_STALE_DAYS_THRESHOLD of now
+    trailing_attempted_failed: int = 0  # rows within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS (drives the high verdict)
 
 
 def _read_attempted_failed_cells(
@@ -520,11 +523,14 @@ def _read_attempted_failed_cells(
         captured = int((dt_mask & captured_mask).sum())
         attempted_failed = int((dt_mask & failed_mask).sum())
         denom = captured + attempted_failed
-        ratio = (attempted_failed / denom) if denom > 0 else 0.0
-        high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
-            attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
+        failed_attempted_at: pd.Series[str] = attempted_at_col[dt_mask & failed_mask]
+        trailing_failed = int(trailing_window_mask(failed_attempted_at).sum())
+        # Trailing ratio: recent failures / all-time denominator (lifetime captured used since
+        # per-period captured isn't available from attempted_at-only column selection).
+        ratio = (trailing_failed / denom) if denom > 0 else 0.0
+        high = trailing_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
+            trailing_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
         )
-        failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
         max_attempted_at = max(failed_attempted_at, default="")
         recent_attempted_failed = int(recent_activity_mask(failed_attempted_at).sum())
         cells.append(
@@ -539,6 +545,7 @@ def _read_attempted_failed_cells(
                 max_attempted_at=max_attempted_at,
                 stale_days=stale_days_since(max_attempted_at),
                 recent_attempted_failed=recent_attempted_failed,
+                trailing_attempted_failed=trailing_failed,
             )
         )
     return cells
@@ -636,11 +643,11 @@ def check_high_attempted_failed(
             )
             summary = (
                 f"high attempted_failed batch — asset_group={cell.asset_group} "
-                f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
-                f"of {cell.captured + cell.attempted_failed} attempted "
-                f"(ratio {cell.ratio:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
-                f"or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%}). A backfill exited "
-                f"0 / captured climbed but failed this batch invisibly."
+                f"data_type={cell.data_type}: {cell.trailing_attempted_failed} attempted_failed "
+                f"in the last {ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS}d "
+                f"(lifetime={cell.attempted_failed}; ratio {cell.ratio:.1%}; "
+                f"abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%}). "
+                f"A backfill exited 0 / captured climbed but failed this batch invisibly."
             ) + staleness_note
             _emit(
                 PipelineFinding(
@@ -657,6 +664,8 @@ def check_high_attempted_failed(
                         "data_type": cell.data_type,
                         "captured": cell.captured,
                         "attempted_failed": cell.attempted_failed,
+                        "trailing_attempted_failed": cell.trailing_attempted_failed,
+                        "trailing_window_days": ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
                         "ratio": round(cell.ratio, 4),
                         "abs_threshold": ATTEMPTED_FAILED_ABS_THRESHOLD,
                         "ratio_threshold": ATTEMPTED_FAILED_RATIO_THRESHOLD,

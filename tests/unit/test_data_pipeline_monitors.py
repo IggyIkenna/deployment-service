@@ -2639,46 +2639,103 @@ def test_high_attempted_failed_ratio_guard_ignores_micro_cell(monkeypatch):
 
 
 def test_known_dead_cell_suppressed_despite_crossing_threshold(monkeypatch):
-    # The registered CBOE ohlcv_15m cell: high (crosses ABS_THRESHOLD) but every row's
-    # attempted_at is BEFORE the registered narrowing date → suppressed, never pages.
+    # A cell whose failures are all WITHIN the trailing window (recent enough to
+    # count toward "high") but also all BEFORE the registry's narrowing date
+    # → still detected as known-dead and suppressed.
+    # Uses a monkeypatched registry entry so timestamps can be both within the
+    # trailing window AND before the narrowing date simultaneously.
+    from deployment_service.data_pipeline_monitors.known_dead_cells_registry import KnownDeadCell
+
+    narrowed_at = (datetime.now(UTC) - timedelta(days=2)).date()
+    pre_narrowing_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.known_dead_cells_registry.KNOWN_DEAD_CELLS",
+        {
+            ("sports", "ohlcv_15m"): KnownDeadCell(
+                asset_group="sports",
+                data_type="ohlcv_15m",
+                narrowed_at=narrowed_at,
+                venue="TEST",
+                narrowed_by="test",
+                note="trailing-window compat test — pre-narrowing rows within trailing window",
+            )
+        },
+    )
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    rows = [("ohlcv_15m", "attempted_failed", pre_narrowing_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
-    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="sports")])
     cell = next(c for c in cells if c.data_type == "ohlcv_15m")
-    assert cell.high  # crosses the threshold ...
-    assert cell.known_dead  # ... but is the registered known-dead cell
-    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)  # so it never pages
+    assert cell.high  # trailing count crosses threshold ...
+    assert cell.known_dead  # ... but all failures predate narrowing → suppressed
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
 
 
 def test_known_dead_cell_with_new_activity_still_pages(monkeypatch):
-    # Same registered cell, but ONE row carries an attempted_at AFTER the narrowing
-    # date — genuinely new activity → known_dead must clear and the cell must page.
+    # Same scenario but ONE failure is AFTER the narrowing date (still within
+    # trailing window) → max_attempted_at > narrowed_at → known_dead clears → pages.
+    from deployment_service.data_pipeline_monitors.known_dead_cells_registry import KnownDeadCell
+
+    narrowed_at = (datetime.now(UTC) - timedelta(days=2)).date()
+    pre_narrowing_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    post_narrowing_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # today > narrowed_at
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.known_dead_cells_registry.KNOWN_DEAD_CELLS",
+        {
+            ("sports", "ohlcv_15m"): KnownDeadCell(
+                asset_group="sports",
+                data_type="ohlcv_15m",
+                narrowed_at=narrowed_at,
+                venue="TEST",
+                narrowed_by="test",
+                note="trailing-window compat test — one post-narrowing row clears known_dead",
+            )
+        },
+    )
     n_old = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 4
-    rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_old
-    rows.append(("ohlcv_15m", "attempted_failed", "2026-07-20T00:00:00Z"))
+    rows = [("ohlcv_15m", "attempted_failed", pre_narrowing_ts)] * n_old
+    rows.append(("ohlcv_15m", "attempted_failed", post_narrowing_ts))
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
-    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="sports")])
     cell = next(c for c in cells if c.data_type == "ohlcv_15m")
     assert cell.high
-    assert not cell.known_dead
+    assert not cell.known_dead  # new activity after narrowing → alive
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
 
 def test_unregistered_cell_never_known_dead(monkeypatch):
     # A high cell for a (asset_group, data_type) NOT in the registry must page exactly
     # as before this change — the registry is opt-in, never a blanket suppression.
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    rows = [("trades", "attempted_failed", fresh_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
-    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="sports")])
     cell = next(c for c in cells if c.data_type == "trades")
     assert cell.high
     assert not cell.known_dead
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_old_failures_outside_trailing_window_do_not_page(monkeypatch):
+    # Core regression guard for the cefi/liquidations class: failures whose
+    # attempted_at is older than ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS do NOT count
+    # toward the threshold, so a cell whose root cause is fixed auto-resolves once the
+    # historical rows age out of the window.
+    window_days = meta_watchers.ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS
+    old_ts = (datetime.now(UTC) - timedelta(days=window_days + 5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_old = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5  # would page on lifetime count
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed", old_ts)] * n_old
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert not cell.high  # trailing count = 0 — old failures aged out
+    assert cell.attempted_failed == n_old  # lifetime total still visible for context
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
 
 
 # ── DP-FETCH-009 staleness labeling (cefi_high_attempted_failed_batch_cluster_2026_07_23.md
