@@ -22,10 +22,14 @@
 #   push to [main] + pull_request to [main, staging] + workflow_dispatch
 #   (live-defi-rollout never triggers — no remote CI on the gateless trunk;
 #    push:[staging] dropped 2026-06-10 A3 — staging-green inherits from the LDR→staging PR's v2)
+#   Exception: ldr_terminal repos (e.g. agent-orchestrator) set manifest.ci_trigger_branch=
+#   "live-defi-rollout" → their rendered push: branches: [live-defi-rollout] instead.
 #
 # ## Substitution placeholders (rendered by rollout-workflow-templates.sh):
 #   - unified-trading-library unified-api-contracts   — transitive editable closure from the repo's pyproject
 #                       `path = "../<repo>"` deps (manifest fallback if no pyproject)
+#   - CI_TRIGGER_BRANCH — manifest field ci_trigger_branch; default "main"; set to
+#                       "live-defi-rollout" for ldr_terminal repos
 #   - deployment-service   — repo name (e.g. alerting-service)
 #   - deployment_service  — Python source dir (e.g. alerting_service) [reserved; derived
 #                       inside the reusable workflow today]
@@ -94,7 +98,6 @@ jobs:
     # needed job doesn't also skip THIS job.
     if: >-
       always() && needs.quality-gates-v2.result == 'failure'
-      && needs.quality-gates-v2.outputs.billing_kill != 'true'
       && github.event_name == 'pull_request'
       && (github.base_ref == 'staging' || github.base_ref == 'main')
     runs-on: ubuntu-latest
