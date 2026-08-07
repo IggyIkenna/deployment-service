@@ -101,6 +101,27 @@ CENSUS_BLOB = "vm-census/exit-code-fleet-census.json"
 # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8.
 WORKER_STALLED_EXIT_CODE: int = 124
 
+# ``instruments-service/scripts/enumerate_expected_universe.py``'s own
+# documented ``max-writes-per-run`` halt-safety trip (``return 5`` at both call
+# sites) — a DELIBERATE self-imposed guard against an oversized write, not a
+# crash. The ``expected-universe-v2-*`` VM family's own calling wrapper
+# (``deployment-service/scripts/vm/launch-expected-universe-v2-historical-backfill-vm.sh``)
+# already treats this exit code as retriable and re-launches the SAME chunk
+# itself, sequentially, respecting the child launcher's singleton lock (see
+# that script's own inline docs on ``MAX_CHUNK_ATTEMPTS``) — so a bare
+# exit_code==5 on this VM family is expected, self-managed behavior, not a
+# failure needing a page or an out-of-band relaunch (an out-of-band relaunch
+# would race the wrapper's own sequential retry). NOT a generic exit-code
+# signature — several unrelated one-off migration scripts also happen to
+# ``sys.exit(5)`` for their own reasons, so this is gated on the vm_name
+# prefix too, never a bare ``exit_code == 5`` check alone. Confirmed live
+# 2026-08-07 (DP-VM-001 escalation agt-fe0635): 10+ identical exit_code=5
+# events for expected-universe-v2-sports-* in ~90 minutes, each superseded by
+# the wrapper's own next retry attempt before any human/agent response was
+# even possible — the CRITICAL page + relaunch-worker dispatch was pure noise.
+EXPECTED_UNIVERSE_HALT_SAFETY_EXIT_CODE: int = 5
+EXPECTED_UNIVERSE_VM_PREFIX: str = "expected-universe-v2-"
+
 # Launchers whose target script is PROVEN idempotent + day/object-level
 # checkpoint-resumable (verified per-launcher in
 # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todos 2/5) —
@@ -300,7 +321,12 @@ def _finding_for(
     sweep's ``launcher_for_vm``); when no launcher binding is available the
     actuator skips and the finding falls through to ``file_issue`` (the
     escalation hop guarantees no auto_recover finding is lost). A non-OOM
-    non-zero exit stays ``page_operator``.
+    non-zero exit stays ``page_operator`` — EXCEPT the ``expected-universe-v2-*``
+    family's own ``EXPECTED_UNIVERSE_HALT_SAFETY_EXIT_CODE`` (5), which is a
+    known, self-managed "safe to retry" signal already handled by that VM
+    family's own calling wrapper (see the module constant's docstring) and
+    routes to ``file_issue`` (WARN) instead of paging + dispatching a relaunch
+    worker for every occurrence.
 
     ``stall_marker`` disambiguates a genuine OOM from a stall-induced SIGKILL
     that also happens to exit 137 (``fred_backfill_early_date_indefinite_stall_
@@ -408,14 +434,39 @@ def _finding_for(
         # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8.
         worker_stalled = result.exit_code == WORKER_STALLED_EXIT_CODE and worker_stall_safe
         stall_induced_sigkill = result.exit_code == 137 and stall_marker
-        summary = (
-            f"VM {result.vm_name} terminated with exit_code={result.exit_code}"
-            f"{' (OOM)' if oom else ''}"
-            f"{' (stall-induced SIGKILL, not OOM)' if stall_induced_sigkill else ''}"
-            f"{' (WORKER_STALLED, vetted launcher)' if worker_stalled else ''}"
-            " — captured did not complete cleanly"
+        # See EXPECTED_UNIVERSE_HALT_SAFETY_EXIT_CODE's module docstring — a
+        # deliberate, self-managed "safe to retry" signal for this one VM
+        # family, not a failure.
+        halt_safety_retriable = (
+            result.exit_code == EXPECTED_UNIVERSE_HALT_SAFETY_EXIT_CODE
+            and result.vm_name.startswith(EXPECTED_UNIVERSE_VM_PREFIX)
         )
-        oom_details: dict[str, object] = {**base_details, "oom": oom}
+        if halt_safety_retriable:
+            # Slugged by vm-prefix (not the ephemeral timestamped vm_name) so
+            # `_write_issue_doc`'s own slug+date dedup collapses repeat
+            # same-day halt-safety trips of the same backfill family into ONE
+            # doc, mirroring `_oom_investigate_finding`'s dedup pattern.
+            summary = (
+                f"{EXPECTED_UNIVERSE_VM_PREFIX}* backfill hit its own "
+                "max-writes-per-run halt-safety (exit_code=5) — expected, "
+                "already retried by launch-expected-universe-v2-historical-"
+                "backfill-vm.sh's own sequential per-chunk retry loop; no page "
+                "or out-of-band relaunch needed unless the wrapper itself "
+                "aborts (MAX_CHUNK_ATTEMPTS exhausted)"
+            )
+        else:
+            summary = (
+                f"VM {result.vm_name} terminated with exit_code={result.exit_code}"
+                f"{' (OOM)' if oom else ''}"
+                f"{' (stall-induced SIGKILL, not OOM)' if stall_induced_sigkill else ''}"
+                f"{' (WORKER_STALLED, vetted launcher)' if worker_stalled else ''}"
+                " — captured did not complete cleanly"
+            )
+        oom_details: dict[str, object] = {
+            **base_details,
+            "oom": oom,
+            "halt_safety_retriable": halt_safety_retriable,
+        }
         if oom and relaunch_launcher:
             oom_details["relaunch_launcher"] = relaunch_launcher
             # OOM (exit-137) means the machine was too small — a same-machine
@@ -440,8 +491,14 @@ def _finding_for(
                 oom_details["progress_checkpoint"] = progress_checkpoint
         return PipelineFinding(
             event=DP_VM_EXIT_NONZERO,
-            severity="CRITICAL",
-            tier=EscalationTier.AUTO_RECOVER if (oom or worker_stalled) else EscalationTier.PAGE_OPERATOR,
+            severity="WARN" if halt_safety_retriable else "CRITICAL",
+            tier=(
+                EscalationTier.FILE_ISSUE
+                if halt_safety_retriable
+                else EscalationTier.AUTO_RECOVER
+                if (oom or worker_stalled)
+                else EscalationTier.PAGE_OPERATOR
+            ),
             summary=summary,
             details=oom_details,
             registry_id="DP-VM-001",
