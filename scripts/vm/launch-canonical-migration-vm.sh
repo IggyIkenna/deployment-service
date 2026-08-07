@@ -1556,6 +1556,18 @@ _launch() {
     if [[ "$cat" == "defi-pool-casing-fold" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
         MACHINE_TYPE="e2-standard-16"
     fi
+    # defi-gas-fees-legacy-purge default MACHINE_TYPE bump (vm-oom-during-manifest-cas-2026-08-07):
+    # _purge_manifest_rows() holds raw (2.46 GB) + source_table (~12 GB Arrow) + kept_table (~12 GB)
+    # simultaneously = ~28 GB peak, exceeding e2-standard-8's 32 GB after OS overhead and causing
+    # the OOM killer to fire immediately after pq.read_table() returns -- CMD_PID silent-died within
+    # 11 seconds of the download start, no stdout after the "Streaming index download" line, no
+    # snapshot created, no EXIT_STATUS uploaded. Confirmed across two consecutive VM runs
+    # (20260807-082535 and 20260807-100248). The Python script now frees source_table + mask via
+    # gc.collect() before serialization (reducing peak to ~17 GB), but e2-standard-16 (64 GB) is
+    # the belt-and-braces guarantee; an explicit caller-supplied MACHINE_TYPE always wins.
+    if [[ "$cat" == "defi-gas-fees-legacy-purge" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
+        MACHINE_TYPE="e2-standard-16"
+    fi
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
     # BUG FOUND 2026-07-22 (candle-apply adversarial self-test, SHARD_OF=3 preview): "<ag>-candle-apply"
