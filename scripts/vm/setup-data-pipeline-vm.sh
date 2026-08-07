@@ -2590,8 +2590,18 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
   log "mdps-features-live: installing Redis for XREADGROUP-based shard consumer groups..."
   apt-get install -y -qq redis-server
   systemctl start redis-server 2>/dev/null || service redis-server start 2>/dev/null || true
+  # Verify Redis accepted connections before spawning workers (swallowed failures were the
+  # cause of all 12 MDPS workers crashing with "Error 111 connecting to localhost:6379" —
+  # pilot VM 20260807-003048 post-mortem 2026-08-07).
+  _redis_ready=0
+  for _retry in $(seq 1 15); do
+    redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG && { _redis_ready=1; break; }
+    sleep 2
+  done
+  [[ "$_redis_ready" -eq 0 ]] && { log "ERROR: Redis not ready after 30 s — aborting mdps-features-live"; exit 1; }
   export MTDS_STREAMING_REDIS_URL="redis://127.0.0.1:6379"
-  log "Redis started; MTDS_STREAMING_REDIS_URL=redis://127.0.0.1:6379"
+  export STREAMING_REDIS_URL="redis://127.0.0.1:6379"
+  log "Redis ready; STREAMING_REDIS_URL=redis://127.0.0.1:6379"
 
   _MFL_SCRIPT="$WORKSPACE/mdps_features_live_fanout.sh"
   {
@@ -2654,6 +2664,11 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
           [[ "$_AG_LOWER" == "tradfi" ]] && _mfl_args="$_mfl_args --timeframe 1m"
           ;;
       esac
+      # delta_one/volatility/onchain run a GCS-batch dep check that always fails in live mode
+      # (MDPS hasn't written batch files yet); skip it — live mode doesn't need batch GCS data.
+      case "$_mfl_family" in
+        delta_one | volatility | onchain) _mfl_args="$_mfl_args --skip-dependency-check" ;;
+      esac
       printf 'echo "[mdps-features-live] features worker %s (VM_NAME=%s-feat-%s) family=%s"\n' \
         "$_mfl_k" "$VM_NAME_SELF" "$_mfl_family" "$_mfl_family"
       printf 'VM_NAME="%s-feat-%s" "%s" -m features_service --feature-family %s %s &\n' \
@@ -2700,8 +2715,15 @@ elif [ -n "$VM_TASK" ]; then
     log "live_websocket: installing Redis for websocket-streaming pipeline..."
     apt-get install -y -qq redis-server
     systemctl start redis-server 2>/dev/null || service redis-server start 2>/dev/null || true
+    _redis_ready=0
+    for _retry in $(seq 1 15); do
+      redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG && { _redis_ready=1; break; }
+      sleep 2
+    done
+    [[ "$_redis_ready" -eq 0 ]] && { log "ERROR: Redis not ready after 30 s — aborting live_websocket"; exit 1; }
     export MTDS_STREAMING_REDIS_URL="redis://127.0.0.1:6379"
-    log "Redis started; MTDS_STREAMING_REDIS_URL=redis://127.0.0.1:6379"
+    export STREAMING_REDIS_URL="redis://127.0.0.1:6379"
+    log "Redis ready; STREAMING_REDIS_URL=redis://127.0.0.1:6379"
   fi
   # tardis-machine live source: install Node + the tardis-machine sidecar and
   # start its stream-normalized endpoint (FREE — no API key for live). MTDS then
