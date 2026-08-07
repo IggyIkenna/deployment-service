@@ -40,6 +40,10 @@
 #   ssh agent-orch-planning-vm
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-medium}"
@@ -117,9 +121,17 @@ if $DRY_RUN; then
   exit 0
 fi
 
+# ── Durable observability: continuous GCS log stream + liveness heartbeat ──
+# lc_log_upload_continuous_block is used for LONG-LIVED VMs (no EXIT_STATUS /
+# no VM_SHUTDOWN_ON_COMPLETION). The emitted snippet tees stdout+stderr to
+# /var/log/run.log and starts a transient systemd unit (lc-gcs-log-stream-*)
+# that survives the startup-script service cgroup teardown on exit.
+LOG_TRAP="$(lc_log_upload_continuous_block "${VM_NAME}" "${PROJECT_ID}" ao planning-vm)"
+
 # ── Build startup script ──
 STARTUP_SCRIPT=$(cat <<STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
 export HOME=/home/${OPERATOR}
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/home/${OPERATOR}/.local/bin"
@@ -132,8 +144,6 @@ export CLOUD_MOCK_MODE=false
 # the dated VM_NAME (agent-orch-planning-vm-YYYYMMDD) and brand tab/<that-long-name>/N instead of
 # tab/planning/N. SSOT: plans/active/planning_vm_canonical_bringup_and_topology_reconcile_2026_06_05.md.
 export ORCHESTRATOR_VM_ID=planning
-
-exec > >(tee /var/log/planning-vm-bootstrap.log) 2>&1
 
 echo "=== VM Startup: ${VM_NAME} ==="
 date
@@ -174,9 +184,9 @@ date
 STARTUP_EOF
 )
 
-# Write startup script to a temp file (same pattern as other launchers)
-STARTUP_FILE="$(mktemp /tmp/startup-planning-vm-XXXX.sh)"
-printf '%s' "${STARTUP_SCRIPT}" > "${STARTUP_FILE}"
+# Write startup script to a temp file via lc_write_startup_file, which uses
+# a portable mktemp -d approach and registers EXIT cleanup (no hardcoded /tmp/).
+lc_write_startup_file "${STARTUP_SCRIPT}"
 
 # ── Build metadata ──
 METADATA="VM_NAME=${VM_NAME}"
@@ -201,7 +211,6 @@ gcloud compute instances create "${VM_NAME}" \
   --metadata="${METADATA}" \
   --metadata-from-file=startup-script="${STARTUP_FILE}"
 
-rm "${STARTUP_FILE}"
 
 # ── Resolve external IP ──
 EXTERNAL_IP="$(gcloud compute instances describe "${VM_NAME}" \

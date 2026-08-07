@@ -86,6 +86,16 @@
 #                                            preemption relaunch can still find the
 #                                            pin AFTER the instance (and its
 #                                            metadata) is gone. Best-effort.
+#   lc_log_upload_continuous_block <vm_name> <project_id> [asset_group] [task]
+#                                          — like lc_log_upload_trap_block but for
+#                                            LONG-LIVED, non-self-terminating VMs
+#                                            (e.g. planning VM, orchestrator-worker).
+#                                            Emits a bash snippet that tees stdout/
+#                                            stderr to /var/log/run.log and starts a
+#                                            continuous GCS log/heartbeat streamer as
+#                                            a transient systemd unit (survives
+#                                            startup-script service exit). No
+#                                            EXIT_STATUS or shutdown semantics.
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1356,4 +1366,100 @@ _lc_final_upload() {
 trap _lc_final_upload EXIT
 # --- end lc_log_upload_trap_block ---
 TRAPSNIPPET
+}
+
+# ---------------------------------------------------------------------------
+# lc_log_upload_continuous_block <vm_name> <project_id> [asset_group] [task]
+# ---------------------------------------------------------------------------
+# Like lc_log_upload_trap_block but for LONG-LIVED, non-self-terminating VMs
+# (e.g. the orchestrator planning VM, the orchestrator-worker VM) that:
+#   - run indefinitely (no scheduled self-shutdown)
+#   - do NOT need EXIT_STATUS or VM_SHUTDOWN_ON_COMPLETION semantics
+#   - still need continuous GCS log shipping + liveness heartbeat visibility
+#
+# Emits a bash snippet to inject AT THE TOP of an inline VM startup-script
+# heredoc body. The snippet:
+#   1. Tees stdout+stderr to /var/log/run.log (same contract as
+#      lc_log_upload_trap_block).
+#   2. Writes a helper script to /usr/local/bin/lc-gcs-log-stream.sh and
+#      starts it via `systemd-run` as a transient unit named
+#      lc-gcs-log-stream-<vm_name>. The transient unit survives the startup-
+#      script service's exit — unlike a plain & subshell, which is killed
+#      when google-startup-scripts.service tears down its cgroup. If the unit
+#      already exists (e.g. from a previous run), `systemd-run` replaces it.
+#   3. The streamer uploads the growing log to
+#        gs://deployment-scripts-<project>/vm-logs/<vm-name>/run.log
+#      and writes a heartbeat blob to
+#        gs://deployment-scripts-<project>/vm-heartbeat/<vm-name>.txt
+#      every LC_LOG_STREAM_INTERVAL seconds (default 30), same contract as
+#      lc_log_upload_trap_block — these paths are registered in
+#      VM_PREFIX_TO_BUCKET and polled by the vm-zombie-watchdog.
+#
+# Key differences from lc_log_upload_trap_block:
+#   - No EXIT_STATUS marker (long-lived VMs do not self-terminate).
+#   - No shutdown-on-exit trap or VM_SHUTDOWN_ON_COMPLETION logic.
+#   - Streamer runs in a systemd transient unit (survives startup-script exit).
+#
+# Caller pattern (identical to lc_log_upload_trap_block):
+#   LOG_TRAP="$(lc_log_upload_continuous_block "$VM_NAME" "$PROJECT_ID" ao planning-vm)"
+#   STARTUP_SCRIPT=$(cat <<STARTUP_EOF
+#   #!/bin/bash
+#   ${LOG_TRAP}
+#   set -euo pipefail
+#   # ... rest of startup ...
+#   STARTUP_EOF
+#   )
+lc_log_upload_continuous_block() {
+    local vm_name="${1:?lc_log_upload_continuous_block: vm_name required}"
+    local project_id="${2:?lc_log_upload_continuous_block: project_id required}"
+    local asset_group="${3:-UNKNOWN}"
+    local task="${4:-vm-exec}"
+    local code_bucket="deployment-scripts-${project_id}"
+    local stream_interval="${LC_LOG_STREAM_INTERVAL:-30}"
+    cat <<CONTBLOCK
+# --- lc_log_upload_continuous_block (deployment-service/scripts/vm/lib/launcher_common.sh) ---
+# Durable observability for a long-lived (non-self-terminating) VM: continuous
+# GCS log stream (every ${stream_interval}s) + liveness heartbeat blob.
+# No EXIT_STATUS or shutdown semantics — use lc_log_upload_trap_block for
+# batch/backfill VMs that self-terminate.
+# Canonical run.log path: gs://${code_bucket}/vm-logs/${vm_name}/run.log
+LOG_LOCAL="/var/log/run.log"
+GCS_LOG_URI="gs://${code_bucket}/vm-logs/${vm_name}/run.log"
+GCS_HEARTBEAT_URI="gs://${code_bucket}/vm-heartbeat/${vm_name}.txt"
+LC_STREAM_INTERVAL=${stream_interval}
+LC_VM_ASSET_GROUP="${asset_group}"
+LC_VM_TASK="${task}"
+LC_START_EPOCH=\$(date +%s)
+mkdir -p "\$(dirname "\$LOG_LOCAL")" 2>/dev/null || true
+exec > >(tee -a "\$LOG_LOCAL") 2>&1
+echo "=== VM STARTED \$(date -u +'%Y-%m-%dT%H:%M:%SZ') vm=${vm_name} asset_group=${asset_group} task=${task} ==="
+# Write the GCS log-stream helper to a stable path. The helper is started as a
+# transient systemd unit (below) so it survives the startup-script service exit.
+# A plain & subshell would be killed when google-startup-scripts.service tears
+# down its cgroup on exit — that is the gap this approach closes.
+cat > /usr/local/bin/lc-gcs-log-stream.sh << '__LC_STREAM_EOF__'
+#!/usr/bin/env bash
+# Continuous GCS log/heartbeat stream for a long-lived VM (non-self-terminating).
+# Args: <log_file> <gcs_log_uri> <gcs_heartbeat_uri> <interval_s> <vm_name> <asset_group> <task> <start_epoch>
+_LC_LOG="\$1"; _LC_GCS_LOG="\$2"; _LC_GCS_HB="\$3"; _LC_INTERVAL="\$4"
+_LC_VM="\$5"; _LC_AG="\$6"; _LC_TASK="\$7"; _LC_EPOCH="\$8"
+while true; do
+    timeout 60 gcloud storage cp "\$_LC_LOG" "\$_LC_GCS_LOG" --quiet 2>/dev/null || true
+    printf 'vm=%s asset_group=%s task=%s alive_at=%s uptime_s=%s\n' \
+        "\$_LC_VM" "\$_LC_AG" "\$_LC_TASK" \
+        "\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "\$(( \$(date +%s) - _LC_EPOCH ))" \
+        | timeout 30 gcloud storage cp - "\$_LC_GCS_HB" --quiet 2>/dev/null || true
+    sleep "\$_LC_INTERVAL"
+done
+__LC_STREAM_EOF__
+chmod +x /usr/local/bin/lc-gcs-log-stream.sh
+# Start the streamer as a transient systemd unit so it survives this startup-
+# script's service exit. The stable unit name means repeat runs replace the
+# previous instance rather than accumulating stale units.
+systemd-run --unit=lc-gcs-log-stream-${vm_name} --remain-after-exit \
+    /usr/local/bin/lc-gcs-log-stream.sh \
+    "\$LOG_LOCAL" "\$GCS_LOG_URI" "\$GCS_HEARTBEAT_URI" "\$LC_STREAM_INTERVAL" \
+    "${vm_name}" "${asset_group}" "${task}" "\$LC_START_EPOCH" 2>/dev/null || true
+# --- end lc_log_upload_continuous_block ---
+CONTBLOCK
 }

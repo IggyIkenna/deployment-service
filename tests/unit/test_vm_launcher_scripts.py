@@ -159,6 +159,35 @@ class TestLauncherCommonLibrary:
         with pytest.raises(ValueError):
             int("RUNNING")
 
+    def test_lc_log_upload_continuous_block(self, launcher_lib_path: Path):
+        """lc_log_upload_continuous_block generates a valid bash snippet for long-lived VMs.
+
+        Must emit: tee exec redirect, systemd-run streamer, GCS log + heartbeat URIs.
+        Must NOT emit: EXIT_STATUS, shutdown trap (long-lived VMs don't self-terminate).
+        """
+        vm_name = "agent-orch-planning-vm-20260807"
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source "{launcher_lib_path}" && lc_log_upload_continuous_block "{vm_name}" "{TEST_PROJECT}"',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        output = result.stdout
+        assert f"gs://deployment-scripts-{TEST_PROJECT}/vm-logs/{vm_name}/run.log" in output
+        assert f"gs://deployment-scripts-{TEST_PROJECT}/vm-heartbeat/{vm_name}.txt" in output
+        assert "exec > >(tee -a" in output
+        assert "systemd-run" in output
+        assert f"lc-gcs-log-stream-{vm_name}" in output
+        # Must NOT wire the EXIT_STATUS upload trap or shutdown semantics
+        # (long-lived VMs don't self-terminate — those are batch-only concepts)
+        assert "GCS_EXIT_URI" not in output
+        assert "trap _lc_final_upload EXIT" not in output
+        assert "VM_SHUTDOWN_ON_COMPLETION" not in output
+
 
 class TestTarballFreshnessGuard:
     """Test lc_verify_tarball_freshness — the pre-launch stale-tarball guard.
@@ -1204,6 +1233,7 @@ class TestDurableLogStreamerCoverage:
         "setup-data-pipeline-vm",
         "vm-exec-with-gcs-tee",
         "lc_log_upload_trap_block",
+        "lc_log_upload_continuous_block",
         "_tradfi-ohlcv-launcher-lib",
     )
 
@@ -1213,9 +1243,9 @@ class TestDurableLogStreamerCoverage:
     EXEMPT: dict[str, str] = {
         # --- AWS launcher (not a GCP VM; AWS parity is Phase 5) ---
         "launch-ec2-vm.sh": "AWS EC2 master launcher — not a GCP VM (AWS parity tracked separately).",
-        # --- LONG_LIVED service VMs (persistent; systemd/container logging, no
-        #     batch run.log/EXIT_STATUS lifecycle — VM_SHUTDOWN_ON_COMPLETION=false) ---
-        "launch-planning-vm.sh": "LONG_LIVED_LIVE interactive planning VM (no batch run-log lifecycle).",
+        # --- LONG_LIVED service VMs (persistent; VM_SHUTDOWN_ON_COMPLETION=false) ---
+        # launch-planning-vm.sh now wires lc_log_upload_continuous_block (no EXIT_STATUS/shutdown)
+        # and is therefore covered by the STREAMER_TOKENS guard — removed from EXEMPT.
         "launch-orchestrator-worker-vm.sh": "LONG_LIVED agent-orchestrator worker (systemd-managed, persistent).",
         "launch-dashboard-vm.sh": "LONG_LIVED container VM (restart=always; container logging, no startup-script run.log).",
         "launch-data-pipeline-fleet-monitor.sh": "Permanent observability monitor VM (it IS the fleet monitor).",
