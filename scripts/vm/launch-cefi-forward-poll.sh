@@ -42,6 +42,7 @@
 #   bash launch-cefi-forward-poll.sh --venue DERIBIT 2026-05-23 2026-08-05  # single-venue targeted backfill
 #   bash launch-cefi-forward-poll.sh --force-download 2026-05-23 2026-08-05 # bypass false-"captured" pre-flight
 #   bash launch-cefi-forward-poll.sh --mtds-sha <full-sha> ...               # pin the mtds-code tarball
+#   bash launch-cefi-forward-poll.sh --data-types derivative_ticker ...      # restrict to specific data types (skips options_chain etc.)
 #   bash launch-cefi-forward-poll.sh --force ...           # bypass singleton lock
 #
 # Cost: e2-standard-8 ~30-60 min per run depending on day breadth.
@@ -63,6 +64,7 @@ FORCE=false
 VENUE=""
 FORCE_DOWNLOAD=false
 MTDS_SHA=""
+DATA_TYPES=""
 
 _positional=()
 DRY_RUN=false
@@ -75,6 +77,7 @@ while [[ $# -gt 0 ]]; do
     --venue) VENUE="$2"; shift 2 ;;
     --force-download) FORCE_DOWNLOAD=true; shift ;;
     --mtds-sha) MTDS_SHA="$2"; shift 2 ;;
+    --data-types) DATA_TYPES="$2"; shift 2 ;;
     *) _positional+=("$1"); shift ;;
   esac
 done
@@ -181,11 +184,13 @@ METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-# Targeted venue / tarball / force scoping — setup-data-pipeline-vm.sh maps these
-# metadata keys to MTDS CLI args: VM_VENUE → --venues (single-venue DERIBIT-only
-# backfill), MTDS_TARBALL_SHA → mtds-code@<sha> pinned tarball, VM_FORCE → --force
-# (bypass the false-"captured" manifest pre-flight; see
-# cefi_tardis_derivative_ticker_historical_gap_2026_08_04.md RC2/R3 notes).
+# Targeted venue / tarball / force / data-type scoping — setup-data-pipeline-vm.sh
+# maps these metadata keys to MTDS CLI args: VM_VENUE → --venues (single-venue
+# DERIBIT-only backfill), MTDS_TARBALL_SHA → mtds-code@<sha> pinned tarball,
+# VM_FORCE → --force (bypass the false-"captured" manifest pre-flight; see
+# cefi_tardis_derivative_ticker_historical_gap_2026_08_04.md RC2/RC3 notes),
+# VM_DATA_TYPES → --data-types (skip specific data types like options_chain to
+# unblock derivative_ticker; RC4 fix for DERIBIT 300s bulk-download timeout).
 if [[ -n "$VENUE" ]]; then
   METADATA="${METADATA},VM_VENUE=${VENUE}"
   echo "  Venue-restricted: ${VENUE}"
@@ -197,6 +202,10 @@ fi
 if [[ "$FORCE_DOWNLOAD" == "true" ]]; then
   METADATA="${METADATA},VM_FORCE=true"
   echo "  Force download (--force): bypass pre-flight skip"
+fi
+if [[ -n "$DATA_TYPES" ]]; then
+  METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
+  echo "  Data-type restricted: ${DATA_TYPES}"
 fi
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
