@@ -139,7 +139,13 @@ locals {
     }
     "lst-rates" = {
       schedule = "0 1 * * *"
-      cpu      = "1"
+      # 4Gi -> 8Gi / 1 CPU -> 2 CPU (defi_hyperliquid_residual_manifest_rows_2026_08_04.md P2
+      # backfill 2026-08-07): single-date historical backfill runs (2026-08-01/02/03 via REST API
+      # override, execution f8m4d/q9mkx/vqg8n) OOM-killed at 4Gi with 1 CPU — Cloud Run constraint:
+      # >4Gi requires >=2 CPU. Daily cron at 4Gi/1CPU succeeded for recent dates (yesterday); only
+      # historical-date backfills exceeded 4Gi. `gcloud run jobs update --cpu=2 --memory=8Gi`
+      # applied live 2026-08-07T20:20Z — this syncs IaC so `terraform apply` doesn't revert.
+      cpu         = "2"
       # 2Gi -> 4Gi (defi_mtds_lst_rates_cloud_run_job_oom_2026_08_04.md): every scheduled run
       # 2026-08-02 through 2026-08-05 OOM-killed ("The configured memory limit was reached")
       # inside ManifestFreshnessCache.bulk_load()'s background warmup thread
@@ -152,9 +158,9 @@ locals {
       # source of truth so the next `terraform apply` doesn't drift-revert that live fix back to
       # the OOM-ing 2Gi. Matches dex-pools/dex-swaps/evm-defi's existing 4Gi for the same class
       # of freshness/manifest-heavy defi collection job.
-      memory      = "4Gi"
+      memory      = "8Gi"
       timeout     = 1200
-      description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block. Bumped 2Gi->4Gi 2026-08-05: OOM-killed (signal 9) on every run since 2026-08-02 at ~70% of 2Gi (rss~2040MiB) -- see plans/active/issues/defi_hyperliquid_residual_manifest_rows_2026_08_04.md's BLAZESTAKE finding (this job also covers the Solana LST leg, incl. bSOL/BLAZESTAKE)."
+      description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block. Bumped 2Gi->4Gi 2026-08-05: OOM on cron 2026-08-02..08-05. Bumped 4Gi/1CPU->8Gi/2CPU 2026-08-07: historical backfill (2026-08-01..03) OOM at 4Gi/1CPU (Cloud Run limit); 2CPU required for >4Gi. See defi_hyperliquid_residual_manifest_rows_2026_08_04.md."
     }
     "vault-share-price" = {
       schedule    = "10 1 * * *"
