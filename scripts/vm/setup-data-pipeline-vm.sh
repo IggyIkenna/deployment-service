@@ -2585,6 +2585,14 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
   esac
   [[ "$_mfl_shards_per_worker" -lt 1 ]] && _mfl_shards_per_worker=1
 
+  # MDPS streaming-aggregation uses XREADGROUP consumer groups (market-data-processing-service@df45ef8)
+  # which require Redis. Install and start it before spawning the fanout workers.
+  log "mdps-features-live: installing Redis for XREADGROUP-based shard consumer groups..."
+  apt-get install -y -qq redis-server
+  systemctl start redis-server 2>/dev/null || service redis-server start 2>/dev/null || true
+  export MTDS_STREAMING_REDIS_URL="redis://127.0.0.1:6379"
+  log "Redis started; MTDS_STREAMING_REDIS_URL=redis://127.0.0.1:6379"
+
   _MFL_SCRIPT="$WORKSPACE/mdps_features_live_fanout.sh"
   {
     echo '#!/usr/bin/env bash'
