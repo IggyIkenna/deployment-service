@@ -46,6 +46,18 @@ END_DATE=""
 TIER=""
 FORCE=false
 CHUNK_SIZE="${CHUNK_SIZE:-250}"
+_CHUNK_SIZE_EXPLICIT=false
+# issues/mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md P2 (option (b),
+# "documented operator convention"): the tail nearest the current date is where
+# live-capture dormancy windows + scattered small gaps cluster densely -- a
+# CEFI Tardis chunk covering that window is disproportionately likely to hit
+# the OOM signature this doc documents (the 250-day default is proven safe for
+# older, mostly-skip-dense history; it was never validated against a
+# request whose ENTIRE range sits inside the dense recent tail). Applies ONLY
+# when the operator did not explicitly pass --chunk-size; an explicit value
+# always wins.
+RECENT_HISTORY_WINDOW_DAYS="${RECENT_HISTORY_WINDOW_DAYS:-45}"
+RECENT_HISTORY_CHUNK_SIZE="${RECENT_HISTORY_CHUNK_SIZE:-5}"
 # Opt-in dates-in-flight per chunk (UTL ServiceCLI --batch-date-concurrency). Empty =
 # serial (today's behavior). Only pass a value once the UTL driver + ServiceCLI flag
 # are deployed (in the code tarball this VM fetches) — an older UTL errors on the flag.
@@ -77,7 +89,7 @@ while [[ $# -gt 0 ]]; do
     --end)           END_DATE="$2"; shift 2 ;;
     --tier)          TIER="$2"; shift 2 ;;
     --force)         FORCE=true; shift ;;
-    --chunk-size)    CHUNK_SIZE="$2"; shift 2 ;;
+    --chunk-size)    CHUNK_SIZE="$2"; _CHUNK_SIZE_EXPLICIT=true; shift 2 ;;
     --batch-date-concurrency) BATCH_DATE_CONCURRENCY="$2"; shift 2 ;;
     --machine-type)  MACHINE_TYPE="$2"; shift 2 ;;
     --vm-name)       VM_NAME_OVERRIDE="$2"; shift 2 ;;
@@ -119,6 +131,24 @@ if [[ -z "$MACHINE_TYPE" ]]; then
     MACHINE_TYPE="e2-highmem-4"
   else
     MACHINE_TYPE="e2-standard-4"
+  fi
+fi
+
+# Recent-history adaptive chunk-size (see the RECENT_HISTORY_* comment above
+# their declarations) -- CEFI only, and only when the operator left
+# --chunk-size at its default. Portable epoch helper mirrors
+# launch-mtds-lending-indices-backfill-vm.sh's own span-aware sizing (GNU
+# `date -d` first, BSD `date -j -f` fallback).
+_epoch() { date -d "$1" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$1" +%s; }
+if [[ "$CATEGORY_LOWER" == "cefi" && "$_CHUNK_SIZE_EXPLICIT" == "false" && -n "$END_DATE" ]]; then
+  _today_epoch=$(_epoch "$(date -u +%Y-%m-%d)")
+  _end_epoch=$(_epoch "$END_DATE")
+  _days_since_end=$(( (_today_epoch - _end_epoch) / 86400 ))
+  if [[ $_days_since_end -le $RECENT_HISTORY_WINDOW_DAYS ]]; then
+    echo "NOTE: --end ${END_DATE} is within ${RECENT_HISTORY_WINDOW_DAYS}d of today -- defaulting" \
+         "--chunk-size ${CHUNK_SIZE} -> ${RECENT_HISTORY_CHUNK_SIZE} (recent-history dense-gap mitigation," \
+         "see mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md). Pass --chunk-size explicitly to override."
+    CHUNK_SIZE="$RECENT_HISTORY_CHUNK_SIZE"
   fi
 fi
 
