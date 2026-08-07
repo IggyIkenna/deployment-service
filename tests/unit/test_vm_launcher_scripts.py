@@ -300,6 +300,53 @@ echo "RC=$rc"
         assert "RC=1" in result.stdout
         assert "manifest MISSING" in result.stderr
 
+    def test_auto_mode_stale_after_dirty_skip_returns_nonzero(self, tmp_path: Path):
+        """auto mode must return non-zero when the post-republish tarball is still stale.
+
+        Reproduces the exact silent-failure bug: create-code-tarballs.sh exits 0
+        (dirty-tree skip — foreign uncommitted files in a shared multi-slot checkout
+        are a normal, expected state) without actually updating the tarball. The prior
+        warn-mode re-verify always returned 0, so auto silently declared success and
+        let VM launches proceed onto stale code. After the fix, auto must return
+        non-zero when the post-republish freshness check still finds the tarball stale.
+        Root: issues/lc_verify_tarball_freshness_auto_mode_silent_dirty_skip_2026_08_06.md
+        """
+        ws, _ = self._fresh_workspace(tmp_path)
+        lib = self._lib_abs()
+        script = f"""
+gcloud() {{
+    local dest="${{@: -2:1}}"
+    if [[ "$*" == *manifest.json* && "$*" == *cp* ]]; then
+        printf '{{"commit_sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}}' > "$dest"; return 0
+    fi
+    return 0
+}}
+export -f gcloud
+bash() {{
+    if [[ "$*" == *create-code-tarballs.sh* ]]; then
+        return 0
+    fi
+    command bash "$@"
+}}
+export -f bash
+source "{lib}"
+# `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
+set +e
+if lc_verify_tarball_freshness bkt market-tick-data-service; then rc=0; else rc=$?; fi
+echo "RC=$rc"
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "WORKSPACE_ROOT": str(ws), "LC_TARBALL_FRESHNESS": "auto"},
+        )
+        assert "RC=0" not in result.stdout, (
+            "auto mode must not return success when post-republish tarball is still stale "
+            "(create-code-tarballs.sh dirty-tree skip exits 0 without updating the tarball)"
+        )
+        assert "stale" in result.stderr.lower(), "stale tarball must be reported in stderr"
+
     def test_incident_launcher_wires_the_guard(self):
         """The morpho incident launcher must actually call the guard before launch."""
         launcher = Path(__file__).parent.parent.parent / "scripts/vm/launch-mtds-lending-indices-backfill-vm.sh"

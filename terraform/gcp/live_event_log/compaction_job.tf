@@ -55,7 +55,7 @@ resource "google_cloud_run_v2_job" "live_event_log_compactor" {
 
       service_account = var.compactor_sa_email
       max_retries     = 3
-      timeout         = "3600s"
+      timeout         = "28800s"
     }
   }
 

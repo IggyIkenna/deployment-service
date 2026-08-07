@@ -1590,6 +1590,57 @@ def test_sweep_auto_kills_stalled_backfill_vm(monkeypatch):
     assert killed == [(vm, "asia-northeast1-c")], "stalled backfill VM past kill_minutes should be auto-killed"
 
 
+def test_resolve_kill_minutes_canonical_migration_override():
+    """canonical-migration- VMs get the 90min override, not the flat 45min default."""
+    assert (
+        heartbeat_stall_watcher._resolve_kill_minutes(
+            "canonical-migration-defi-gas-fees-legacy-purge-20260807-100248", 45.0
+        )
+        == 90.0
+    )
+    assert heartbeat_stall_watcher._resolve_kill_minutes("tradfi-bf-cme-2026", 45.0) == 45.0
+
+
+def test_sweep_does_not_kill_canonical_migration_vm_before_override_threshold(monkeypatch):
+    """A canonical-migration- VM stale past the flat 45min default but under its own
+    90min override must NOT be auto-killed (root-caused 2026-08-07: this sweep is a
+    separate Cloud Run job from vm_zombie_watchdog's own canonical-migration- override
+    and independently killed canonical-migration-defi-gas-fees-legacy-purge-20260807-
+    100248 at ~50min stale, well before its purge's legitimate 30-60min silent window
+    elapsed)."""
+    vm = "canonical-migration-defi-gas-fees-legacy-purge-20260807-999999"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None)})
+    killed: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.heartbeat_stall_watcher.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False})
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+
+    def _killer(name: str, zone: str) -> bool:
+        killed.append((name, zone))
+        return True
+
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "defi",
+        umbrella_for_vm=lambda _vm: "batch",
+        vm_killer=_killer,
+        stall_minutes=15,
+        kill_minutes=45.0,
+    )
+    assert killed == [], "a canonical-migration- VM under its 90min override must not be auto-killed at 60min stale"
+
+
 def test_sweep_does_not_kill_live_vm(monkeypatch):
     """A LONG_LIVED_LIVE producer is never auto-killed even when its heartbeat is stale."""
     vm = "mtds-live-defi-2026"

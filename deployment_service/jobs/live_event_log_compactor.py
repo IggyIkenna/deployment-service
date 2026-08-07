@@ -14,9 +14,15 @@ Workflow
       subscription has no ``parquet_config``/``avro_config`` set, so the bytes
       on the wire are exactly the JSON message data, never real Parquet.
    b. Parse each envelope, extract ``payload_inline`` (JSON-encoded row or list
-      of rows), and concat all rows across the shard's warm files into a single
-      in-memory DataFrame — this is where the JSON->Parquet conversion actually
-      happens (the warm tier itself is never Parquet).
+      of rows), and write all rows across the shard's warm files to a cold Parquet
+      file — this is where the JSON->Parquet conversion actually happens (the warm
+      tier itself is never Parquet).
+
+      **Wire format (NDJSON)**: each warm GCS object contains MULTIPLE
+      ``CanonicalPersistEnvelope`` JSON objects, one per line (newline-delimited
+      JSON, NDJSON) — the Cloud Storage subscription batches several Pub/Sub
+      messages per file. ``_extract_rows`` handles ONE envelope line; the
+      ``compact_shard`` loop iterates over every line in every warm file.
    c. Write a daily cold parquet file to the cold prefix
       (``live-events/cold/{asset_group}/{data_type}/date={YYYY-MM-DD}/data.parquet``).
 3. For REPRODUCIBLE shards: the cold-tier GCS lifecycle rule (set via terraform
@@ -162,16 +168,17 @@ def _warm_blob_matches_date(blob_name: str, prefix: str, target_date: date) -> b
 def _extract_rows(blob_name: str, raw_bytes: bytes) -> list[dict[str, object]]:
     """Parse one warm-sink object's bytes as a ``CanonicalPersistEnvelope`` and return its rows.
 
-    Every warm-sink object is the raw Pub/Sub message the ``google_pubsub_subscription``
-    ``cloud_storage_config`` wrote verbatim (no ``parquet_config``/``avro_config`` is set on
-    any of the 52 subscriptions in ``warm_sink.tf``) — i.e. JSON, never Parquet, despite the
-    ``.parquet`` filename suffix. ``payload_inline`` carries either a single row dict or a
-    list of row dicts (the compactor is the actual JSON->Parquet conversion boundary).
+    Each warm GCS object is NDJSON: the Cloud Storage subscription batches multiple
+    Pub/Sub messages into one file (one ``CanonicalPersistEnvelope`` JSON object per line).
+    This function is called once per LINE, not once per file — the caller splits raw file
+    bytes by ``\\n`` and passes each non-empty strip individually.
+
+    ``payload_inline`` carries either a single row dict or a list of row dicts (the
+    compactor is the actual JSON->Parquet conversion boundary).
 
     Returns ``[]`` (never raises) on a malformed envelope, invalid JSON payload, a
     payload whose JSON shape isn't a dict/list-of-dicts, or a ``payload_pointer``-only
-    envelope (no SINK_MATRIX shard sets ``hot=False`` today, so this path is unexercised
-    in production) — logs a warning so the gap stays visible instead of silently dropping
+    envelope — logs a warning so the gap stays visible instead of silently dropping
     data or crashing the whole shard on one bad object.
     """
     try:
@@ -288,25 +295,55 @@ async def compact_shard(
         logger.info("compact_shard: DRY RUN — not writing cold file")
         return True
 
-    # Streaming write: process one warm file at a time into a ParquetWriter so the
-    # full row-set is never materialised in memory simultaneously. The previous
-    # approach (accumulate all rows as dicts, then pd.DataFrame.from_records) OOM-killed
-    # the 512Mi container on the (cefi, book_snapshot_5) shard (~1497 warm files/day).
-    # Each file's rows are written as a separate row group; the established schema from
-    # the first non-empty file is used for all subsequent writes (minor null-type drift
-    # is resolved via cast — type-incompatible schema divergence raises explicitly).
+    # Batch write: collect all rows from each warm file, then write one Parquet row
+    # group per file. Peak memory is bounded to one file's rows (~1512 rows x ~25 cols
+    # for book_snapshot_5 ~= 300 KB). The prior per-envelope approach built a separate
+    # Arrow table + Parquet write for every NDJSON line (1512x/file), making each
+    # drift-affected file take ~10s due to DataFrame construction overhead. Each warm
+    # GCS file is NDJSON: multiple CanonicalPersistEnvelope objects, one per line.
     cold_buf = io.BytesIO()
     pq_writer: pq.ParquetWriter | None = None
     pq_schema: pa.Schema | None = None
     unusable = 0
     for name in warm_blob_names:
-        rows = _extract_rows(name, storage_client.download_bytes(warm_bucket_name, name))
-        if not rows:
+        raw_file = storage_client.download_bytes(warm_bucket_name, name)
+        file_rows: list[dict[str, object]] = []
+        for line_bytes in raw_file.split(b"\n"):
+            line_bytes = line_bytes.strip()
+            if not line_bytes:
+                continue
+            file_rows.extend(_extract_rows(name, line_bytes))
+
+        if not file_rows:
             unusable += 1
             continue
-        batch_table = pa.Table.from_pandas(pd.DataFrame.from_records(rows), preserve_index=False)
+
+        batch_table = pa.Table.from_pandas(pd.DataFrame.from_records(file_rows), preserve_index=False)
         if pq_schema is not None and batch_table.schema != pq_schema:
-            batch_table = batch_table.cast(pq_schema)
+            target_names: list[str] = pq_schema.names
+            batch_names: list[str] = batch_table.schema.names
+            if target_names != batch_names:
+                # Column names or ordering differ — rebuild from row dicts to align columns.
+                # cast() requires identical name ordering; dict reconstruction handles both
+                # membership mismatches (extra/missing cols) and ordering differences.
+                extra = [n for n in batch_names if n not in target_names]
+                missing = [n for n in target_names if n not in batch_names]
+                logger.warning(
+                    "compact_shard: schema drift blob=%s extra_cols=%s missing_cols=%s"
+                    " — aligning to first-seen schema (shard=%s/%s)",
+                    name,
+                    extra,
+                    missing,
+                    asset_group,
+                    data_type,
+                )
+                aligned: list[dict[str, object]] = [{k: row.get(k) for k in target_names} for row in file_rows]
+                batch_table = pa.Table.from_pandas(
+                    pd.DataFrame.from_records(aligned), schema=pq_schema, preserve_index=False
+                )
+            else:
+                # Same names in same order — type-only difference, cast is safe.
+                batch_table = batch_table.cast(pq_schema)
         if pq_writer is None:
             pq_schema = batch_table.schema
             pq_writer = pq.ParquetWriter(cold_buf, pq_schema)
@@ -326,7 +363,8 @@ async def compact_shard(
     storage_client.upload_bytes(cold_bucket_name, cold_path, cold_buf.getvalue())
     if unusable:
         logger.warning(
-            "compact_shard: shard=(%s, %s) date=%s — skipped %d/%d unusable warm files (see prior warnings)",
+            "compact_shard: shard=(%s, %s) date=%s — %d/%d warm files yielded zero usable rows "
+            "(all their NDJSON envelope lines failed extraction — see prior warnings)",
             asset_group,
             data_type,
             target_date,

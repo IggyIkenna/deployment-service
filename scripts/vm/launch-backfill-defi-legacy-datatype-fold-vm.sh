@@ -60,6 +60,7 @@
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --dry-run          # plan + dst-check only, no writes
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --only dex_swaps   # one data_type
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --force           # bypass singleton lock
+#   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --allow-stale-fallback  # ONLY for a brief/transient stale window -- silently INCOMPLETE if the consolidator has been down/paused a long time, see the flag's own comment above
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --env staging
 #   ON_DEMAND=true bash launch-backfill-defi-legacy-datatype-fold-vm.sh
 #
@@ -73,6 +74,7 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 MODE="--apply"
 ONLY_ARG=""
+STALE_FALLBACK_PREFIX=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -80,6 +82,29 @@ while [[ $# -gt 0 ]]; do
         --dry-run) MODE=""; shift ;;
         --only) ONLY_ARG="--only $2"; shift 2 ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        # Opt-in escape hatch for ManifestConsolidatorStaleError. Memory-safe here
+        # (this script's read_availability_index() call always passes filters= --
+        # capture_status + data_type -- so the recovery merge is row-group-pushdown
+        # bounded, not the unbounded-decode case the guard defaults to blocking).
+        # BUT NOT DATA-COMPLETE for a long-paused consolidator: the recovery merge
+        # reconstructs its view ENTIRELY from currently-existing _index/per_vm/*
+        # shards (_read_and_merge_per_vm_shards) -- it never reads the stale
+        # consolidated blob's own content at all. Per-VM shards get PRUNED after
+        # each successful consolidation cycle (manifest_consolidator.py's
+        # post-merge prune), so once the consolidator has been paused long enough
+        # that everything from before the pause was already pruned, this flag's
+        # view is missing essentially ALL historical data -- only whatever's been
+        # written by ACTIVE writers since the pause began is visible. Confirmed
+        # live 2026-08-07: with the DeFi consolidator paused ~16h for an unrelated
+        # migration, this flag made the dex_swaps worklist look like 260 shards
+        # instead of the real ~27,549 -- the script ran to a clean "done", zero
+        # errors, and silently processed <2% of the real work while reporting
+        # full success (defi_manifest_allow_stale_fallback_incomplete_for_long_
+        # pause_2026_08_07.md). SAFE for a brief/transient staleness window (a
+        # merge cycle mid-flight, a few minutes); DO NOT use to make progress
+        # against a consolidator known to be down/paused for a long stretch --
+        # wait for it to catch up instead, or you WILL silently under-process.
+        --allow-stale-fallback) STALE_FALLBACK_PREFIX="MANIFEST_ALLOW_STALE_FALLBACK=true "; shift ;;
         *) echo "ERROR: unrecognised argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -128,7 +153,7 @@ VM_NAME="${SINGLETON_PREFIX}${RUN_TS}"
 
 SCRIPTS="/home/ikennaigboaka/workspace/mtds/scripts"
 
-BACKFILL_CMD="python ${SCRIPTS}/fold_legacy_dex_pools_swaps_rate_indices_2026_08_04.py ${MODE} --workers 24 ${ONLY_ARG}"
+BACKFILL_CMD="${STALE_FALLBACK_PREFIX}python ${SCRIPTS}/fold_legacy_dex_pools_swaps_rate_indices_2026_08_04.py ${MODE} --workers 24 ${ONLY_ARG}"
 
 METADATA="VM_TASK=backfill-defi-legacy-datatype-fold"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"

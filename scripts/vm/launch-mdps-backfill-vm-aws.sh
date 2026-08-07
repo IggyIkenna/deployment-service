@@ -142,7 +142,7 @@ if [[ -z "\${GH_PAT}" ]]; then
   shutdown -h now; exit 1
 fi
 
-S3_CODE_BUCKET="unified-trading-deployment-scripts-\${AWS_ACCOUNT_ID}"
+S3_CODE_BUCKET="uts-prod-deployment-state"
 WORK_DIR=/opt/backfill/mdps
 mkdir -p "\${WORK_DIR}"
 
