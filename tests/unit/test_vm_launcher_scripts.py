@@ -1234,6 +1234,7 @@ class TestDurableLogStreamerCoverage:
         "vm-exec-with-gcs-tee",
         "lc_log_upload_trap_block",
         "lc_log_upload_continuous_block",
+        "lc_aws_log_upload_continuous_block",
         "_tradfi-ohlcv-launcher-lib",
     )
 
@@ -1246,7 +1247,8 @@ class TestDurableLogStreamerCoverage:
         # --- LONG_LIVED service VMs (persistent; VM_SHUTDOWN_ON_COMPLETION=false) ---
         # launch-planning-vm.sh now wires lc_log_upload_continuous_block (no EXIT_STATUS/shutdown)
         # and is therefore covered by the STREAMER_TOKENS guard — removed from EXEMPT.
-        "launch-orchestrator-worker-vm.sh": "LONG_LIVED agent-orchestrator worker (systemd-managed, persistent).",
+        # launch-orchestrator-worker-vm.sh now wires lc_aws_log_upload_continuous_block
+        # and is therefore covered by the STREAMER_TOKENS guard — removed from EXEMPT.
         "launch-dashboard-vm.sh": "LONG_LIVED container VM (restart=always; container logging, no startup-script run.log).",
         "launch-data-pipeline-fleet-monitor.sh": "Permanent observability monitor VM (it IS the fleet monitor).",
         # --- Consolidated multi-shard live VMs with bespoke startup scripts ---

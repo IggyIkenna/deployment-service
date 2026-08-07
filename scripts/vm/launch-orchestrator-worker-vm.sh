@@ -105,6 +105,8 @@ for kv in ${EXTRA_ENVS[@]+"${EXTRA_ENVS[@]}"}; do
 done
 
 # ── user-data (the 2026-05-22 proven shape + the EXTRA_ENV hook) ────────────
+lc_aws_resolve_account "${AWS_REGION}"
+LOG_TRAP="$(lc_aws_log_upload_continuous_block "${NAME}" "${AWS_ACCOUNT_ID}" ao orchestrator-worker)"
 USER_DATA_FILE="$(mktemp /tmp/orch-worker-userdata.XXXXXX.sh)"
 trap 'rm -f "${USER_DATA_FILE}"' EXIT
 
@@ -133,8 +135,7 @@ EOF
 
   cat <<EOF
 
-exec > >(tee /var/log/orch-worker-bootstrap.log) 2>&1
-echo "=== Orchestrator worker VM startup: ${NAME} (${VM_ID}, role=${ROLE}) ==="
+${LOG_TRAP}
 date
 
 apt-get update -qq
