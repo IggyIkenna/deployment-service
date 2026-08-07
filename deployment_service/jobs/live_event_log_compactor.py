@@ -322,9 +322,12 @@ async def compact_shard(
         if pq_schema is not None and batch_table.schema != pq_schema:
             target_names: list[str] = pq_schema.names
             batch_names: list[str] = batch_table.schema.names
-            extra = [n for n in batch_names if n not in target_names]
-            missing = [n for n in target_names if n not in batch_names]
-            if extra or missing:
+            if target_names != batch_names:
+                # Column names or ordering differ — rebuild from row dicts to align columns.
+                # cast() requires identical name ordering; dict reconstruction handles both
+                # membership mismatches (extra/missing cols) and ordering differences.
+                extra = [n for n in batch_names if n not in target_names]
+                missing = [n for n in target_names if n not in batch_names]
                 logger.warning(
                     "compact_shard: schema drift blob=%s extra_cols=%s missing_cols=%s"
                     " — aligning to first-seen schema (shard=%s/%s)",
@@ -339,6 +342,7 @@ async def compact_shard(
                     pd.DataFrame.from_records(aligned), schema=pq_schema, preserve_index=False
                 )
             else:
+                # Same names in same order — type-only difference, cast is safe.
                 batch_table = batch_table.cast(pq_schema)
         if pq_writer is None:
             pq_schema = batch_table.schema
