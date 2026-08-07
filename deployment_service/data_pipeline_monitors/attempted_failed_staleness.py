@@ -55,6 +55,42 @@ def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None
     return ts >= cutoff
 
 
+# Trailing window for the DP-FETCH-009 HIGH threshold (option A, operator 2026-08-06):
+# only failures within this many days of now count toward abs/ratio thresholds. NaT/empty
+# rows are treated as POTENTIALLY RECENT (fail-toward-alerting) — see trailing_window_mask.
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 7
+
+
+def trailing_window_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
+    """Boolean mask: True where ``attempted_at`` falls within
+    ``ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS`` of ``now``, OR is unparseable/empty
+    (fail-toward-alerting — unknown-age rows count as recent so legacy data without
+    timestamps continues to trigger DP-FETCH-009)."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS))
+    return ts.isna() | (ts >= cutoff)
+
+
+def compute_activity_counts(
+    attempted_at: pd.Series, *, now: datetime | None = None
+) -> tuple[int, int]:
+    """Return ``(recent_count, trailing_count)`` in one ``pd.to_datetime`` parse.
+
+    ``recent_count`` matches :func:`recent_activity_mask`.
+    ``trailing_count`` matches :func:`trailing_window_mask`.
+    Call this from the hot per-cell loop instead of two separate mask calls to avoid
+    redundant parsing and reduce type-checker Any-propagation from the shared
+    ``attempted_at`` series."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    recent_cutoff = pd.Timestamp(moment - timedelta(days=STATIC_BACKLOG_STALE_DAYS_THRESHOLD))
+    trailing_cutoff = pd.Timestamp(moment - timedelta(days=ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS))
+    recent = int((ts >= recent_cutoff).sum())
+    trailing = int((ts.isna() | (ts >= trailing_cutoff)).sum())
+    return recent, trailing
+
+
 def stale_backlog_annotation(
     stale_days: int | None,
     *,
