@@ -575,6 +575,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-position-data-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-liquidation-events-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-flash-loan-events-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-bridge-events-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-risk-params-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
