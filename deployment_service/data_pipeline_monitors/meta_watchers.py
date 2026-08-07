@@ -40,6 +40,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pandas as pd
@@ -227,6 +228,9 @@ def _cron_miss_key(target: FreshnessTarget) -> str:
 ATTEMPTED_FAILED_ABS_THRESHOLD = 500  # absolute attempted_failed count per (ag, data_type) → page
 ATTEMPTED_FAILED_RATIO_THRESHOLD = 0.10  # attempted_failed / (captured + attempted_failed) → page
 MIN_ATTEMPTED_FAILED_FOR_RATIO = 50  # ratio path ignored below this count (avoid micro-cell noise)
+# Thresholds above are evaluated against the TRAILING WINDOW, not the full lifetime manifest.
+# A cell whose root cause is fixed stops paging once fixed-era failures age past this boundary.
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14
 # STATIC_BACKLOG_STALE_DAYS_THRESHOLD: labeling-only constant, see attempted_failed_staleness.py.
 # Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
 AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
@@ -475,6 +479,7 @@ class AttemptedFailedCell:
     max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
     stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
     recent_attempted_failed: int = 0  # attempted_failed rows within STATIC_BACKLOG_STALE_DAYS_THRESHOLD of now
+    windowed_attempted_failed: int = 0  # attempted_failed rows within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS
 
 
 def _read_attempted_failed_cells(
@@ -514,6 +519,9 @@ def _read_attempted_failed_cells(
     failed_mask = status == "attempted_failed"
 
     cells: list[AttemptedFailedCell] = []
+    # Trailing-window cutoff: thresholds apply only to failures within this window so
+    # a cell whose root cause is fixed stops paging once the fixed-era rows age out.
+    _window_cutoff = pd.Timestamp(datetime.now(UTC) - timedelta(days=ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS))
     # Stable order so the alert set + tests are deterministic (no set iteration).
     for data_type in sorted(data_type_col.unique()):
         dt_mask = data_type_col == data_type
@@ -521,10 +529,17 @@ def _read_attempted_failed_cells(
         attempted_failed = int((dt_mask & failed_mask).sum())
         denom = captured + attempted_failed
         ratio = (attempted_failed / denom) if denom > 0 else 0.0
-        high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
-            attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
-        )
         failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
+        # Windowed count: only failures within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS.
+        # NaT (empty/unparseable attempted_at) falls below _window_cutoff → excluded;
+        # mirrors the fail-safe convention used by stale_days_since / is_known_dead.
+        failed_ts = pd.to_datetime(failed_attempted_at, utc=True, errors="coerce")
+        windowed_attempted_failed = int((failed_ts >= _window_cutoff).sum())
+        windowed_ratio = (windowed_attempted_failed / denom) if denom > 0 else 0.0
+        high = windowed_attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
+            windowed_attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO
+            and windowed_ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
+        )
         max_attempted_at = max(failed_attempted_at, default="")
         recent_attempted_failed = int(recent_activity_mask(failed_attempted_at).sum())
         cells.append(
@@ -539,6 +554,7 @@ def _read_attempted_failed_cells(
                 max_attempted_at=max_attempted_at,
                 stale_days=stale_days_since(max_attempted_at),
                 recent_attempted_failed=recent_attempted_failed,
+                windowed_attempted_failed=windowed_attempted_failed,
             )
         )
     return cells
@@ -665,6 +681,8 @@ def check_high_attempted_failed(
                         "max_attempted_at": cell.max_attempted_at,
                         "stale_days": cell.stale_days,
                         "recent_attempted_failed": cell.recent_attempted_failed,
+                        "windowed_attempted_failed": cell.windowed_attempted_failed,
+                        "trailing_window_days": ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
                         "is_static_backlog": is_static_backlog,
                     },
                     registry_id="DP-FETCH-009",
