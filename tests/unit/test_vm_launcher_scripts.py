@@ -1980,6 +1980,12 @@ export -f stat
             # byte-for-byte the shipped production script (no reimplementation).
             "STALL_TIMEOUT_SEC": "3",
             "STALL_POLL_SEC": "1",
+            # Skip the setsid re-exec (production VM isolation detail — the stall-detection
+            # logic is identical with and without setsid). Env vars are passed directly via
+            # subprocess.run and survive setgid-less execution unconditionally; the re-exec
+            # path can exhibit CI-runner-specific interactions with exported bash functions /
+            # BASH_FUNC_*% vars that are immaterial to the stall logic under test.
+            "VM_EXEC_DETACHED": "1",
         }
         if stall_progress_regex is not None:
             env["STALL_PROGRESS_REGEX"] = stall_progress_regex
@@ -2287,6 +2293,10 @@ export -f stat
             "PYTHON_BIN": "python",
             "STALL_TIMEOUT_SEC": "3",
             "STALL_POLL_SEC": "1",
+            # Skip the setsid re-exec (production VM isolation detail — the stall-detection
+            # logic is identical with and without setsid). See TestCanonicalMigrationStallDetection
+            # for full rationale.
+            "VM_EXEC_DETACHED": "1",
         }
         if stall_progress_regex is not None:
             env["STALL_PROGRESS_REGEX"] = stall_progress_regex
