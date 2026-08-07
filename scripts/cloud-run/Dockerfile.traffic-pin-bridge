@@ -1,0 +1,26 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
+# Minimal image for the traffic-pin-to-slack-bridge Cloud Run service.
+# The bridge is a standalone Python HTTP server (no deployment-service deps needed).
+
+FROM --platform=linux/amd64 python:3.12-slim@sha256:d657ab0ade19f404a6ccc883ab399540de667aff751748ce23c07330c5a89e64
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
+
+WORKDIR /app
+
+# Install only the Secret Manager client; everything else is stdlib.
+COPY requirements-traffic-pin-bridge.txt ./
+RUN pip install --no-cache-dir -r requirements-traffic-pin-bridge.txt
+
+COPY traffic-pin-to-slack-bridge.py ./
+
+# Health-check matches the /health endpoint in the bridge.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"
+
+EXPOSE 8080
+CMD ["python", "traffic-pin-to-slack-bridge.py"]
