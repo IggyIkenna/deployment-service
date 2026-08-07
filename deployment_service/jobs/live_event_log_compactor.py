@@ -39,12 +39,15 @@ Terraform: ``terraform/gcp/live_event_log/compaction_job.tf``.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import cast
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pydantic import AliasChoices, Field, ValidationError
 from unified_api_contracts.events.persist import CanonicalPersistEnvelope, RetentionClass  # noqa: qg-deep-import
 from unified_api_contracts.events.sink_matrix import SINK_MATRIX, SinkConfig  # noqa: qg-deep-import
@@ -285,16 +288,31 @@ async def compact_shard(
         logger.info("compact_shard: DRY RUN — not writing cold file")
         return True
 
-    records: list[dict[str, object]] = []
+    # Streaming write: process one warm file at a time into a ParquetWriter so the
+    # full row-set is never materialised in memory simultaneously. The previous
+    # approach (accumulate all rows as dicts, then pd.DataFrame.from_records) OOM-killed
+    # the 512Mi container on the (cefi, book_snapshot_5) shard (~1497 warm files/day).
+    # Each file's rows are written as a separate row group; the established schema from
+    # the first non-empty file is used for all subsequent writes (minor null-type drift
+    # is resolved via cast — type-incompatible schema divergence raises explicitly).
+    cold_buf = io.BytesIO()
+    pq_writer: pq.ParquetWriter | None = None
+    pq_schema: pa.Schema | None = None
     unusable = 0
     for name in warm_blob_names:
         rows = _extract_rows(name, storage_client.download_bytes(warm_bucket_name, name))
         if not rows:
             unusable += 1
             continue
-        records.extend(rows)
+        batch_table = pa.Table.from_pandas(pd.DataFrame.from_records(rows), preserve_index=False)
+        if pq_schema is not None and batch_table.schema != pq_schema:
+            batch_table = batch_table.cast(pq_schema)
+        if pq_writer is None:
+            pq_schema = batch_table.schema
+            pq_writer = pq.ParquetWriter(cold_buf, pq_schema)
+        pq_writer.write_table(batch_table)
 
-    if not records:
+    if pq_writer is None:
         logger.warning(
             "compact_shard: shard=(%s, %s) date=%s — all %d warm files yielded 0 usable rows, nothing to write",
             asset_group,
@@ -304,8 +322,8 @@ async def compact_shard(
         )
         return False
 
-    combined = pd.DataFrame.from_records(records)
-    storage_client.upload_bytes(cold_bucket_name, cold_path, combined.to_parquet(index=False))
+    pq_writer.close()
+    storage_client.upload_bytes(cold_bucket_name, cold_path, cold_buf.getvalue())
     if unusable:
         logger.warning(
             "compact_shard: shard=(%s, %s) date=%s — skipped %d/%d unusable warm files (see prior warnings)",
