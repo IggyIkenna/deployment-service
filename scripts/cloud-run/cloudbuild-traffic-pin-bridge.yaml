@@ -1,0 +1,22 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
+# Cloud Build config for traffic-pin-slack-bridge Cloud Run service.
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - build
+      - -t
+      - "$_IMAGE"
+      - -f
+      - "Dockerfile.traffic-pin-bridge"
+      - .
+
+images:
+  - "$_IMAGE"
+
+substitutions:
+  _IMAGE: "asia-northeast1-docker.pkg.dev/central-element-323112/unified-trading-system/traffic-pin-slack-bridge:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
