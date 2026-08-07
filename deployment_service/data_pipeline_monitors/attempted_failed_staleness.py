@@ -42,6 +42,19 @@ def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> i
     return max(0, (moment - ts.to_pydatetime()).days)
 
 
+def trailing_window_mask(attempted_at: pd.Series, *, window_days: int, now: datetime | None = None) -> pd.Series:
+    """Boolean mask for the HIGH-verdict trailing window.
+
+    Unlike :func:`recent_activity_mask`, NaT/unparseable rows resolve to **True**
+    (unknown age → fail toward alerting, never silently excluded from the count).
+    Only rows with a CONFIRMED ``attempted_at`` older than ``window_days`` are False.
+    """
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=window_days))
+    return ts.isna() | (ts >= cutoff)
+
+
 def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
     """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within
     ``STATIC_BACKLOG_STALE_DAYS_THRESHOLD`` days of ``now``. NaT/unparseable rows are
