@@ -295,55 +295,55 @@ async def compact_shard(
         logger.info("compact_shard: DRY RUN — not writing cold file")
         return True
 
-    # Streaming write: process one envelope at a time into a ParquetWriter so the
-    # full row-set is never materialised in memory simultaneously. Each warm GCS file
-    # is NDJSON (multiple CanonicalPersistEnvelope objects, one per line) — the
-    # Cloud Storage subscription batches several Pub/Sub messages per object. We
-    # iterate over lines within each file and write one Parquet row group per envelope,
-    # bounding peak memory to one envelope's rows at a time.
+    # Batch write: collect all rows from each warm file, then write one Parquet row
+    # group per file. Peak memory is bounded to one file's rows (~1512 rows x ~25 cols
+    # for book_snapshot_5 ~= 300 KB). The prior per-envelope approach built a separate
+    # Arrow table + Parquet write for every NDJSON line (1512x/file), making each
+    # drift-affected file take ~10s due to DataFrame construction overhead. Each warm
+    # GCS file is NDJSON: multiple CanonicalPersistEnvelope objects, one per line.
     cold_buf = io.BytesIO()
     pq_writer: pq.ParquetWriter | None = None
     pq_schema: pa.Schema | None = None
     unusable = 0
     for name in warm_blob_names:
         raw_file = storage_client.download_bytes(warm_bucket_name, name)
-        file_had_rows = False
+        file_rows: list[dict[str, object]] = []
         for line_bytes in raw_file.split(b"\n"):
             line_bytes = line_bytes.strip()
             if not line_bytes:
                 continue
-            rows = _extract_rows(name, line_bytes)
-            if not rows:
-                continue
-            file_had_rows = True
-            batch_table = pa.Table.from_pandas(pd.DataFrame.from_records(rows), preserve_index=False)
-            if pq_schema is not None and batch_table.schema != pq_schema:
-                target_names: list[str] = pq_schema.names
-                batch_names: list[str] = batch_table.schema.names
-                extra = [n for n in batch_names if n not in target_names]
-                missing = [n for n in target_names if n not in batch_names]
-                if extra or missing:
-                    logger.warning(
-                        "compact_shard: schema drift blob=%s extra_cols=%s missing_cols=%s"
-                        " — aligning to first-seen schema (shard=%s/%s)",
-                        name,
-                        extra,
-                        missing,
-                        asset_group,
-                        data_type,
-                    )
-                    aligned: list[dict[str, object]] = [{k: row.get(k) for k in target_names} for row in rows]
-                    batch_table = pa.Table.from_pandas(
-                        pd.DataFrame.from_records(aligned), schema=pq_schema, preserve_index=False
-                    )
-                else:
-                    batch_table = batch_table.cast(pq_schema)
-            if pq_writer is None:
-                pq_schema = batch_table.schema
-                pq_writer = pq.ParquetWriter(cold_buf, pq_schema)
-            pq_writer.write_table(batch_table)
-        if not file_had_rows:
+            file_rows.extend(_extract_rows(name, line_bytes))
+
+        if not file_rows:
             unusable += 1
+            continue
+
+        batch_table = pa.Table.from_pandas(pd.DataFrame.from_records(file_rows), preserve_index=False)
+        if pq_schema is not None and batch_table.schema != pq_schema:
+            target_names: list[str] = pq_schema.names
+            batch_names: list[str] = batch_table.schema.names
+            extra = [n for n in batch_names if n not in target_names]
+            missing = [n for n in target_names if n not in batch_names]
+            if extra or missing:
+                logger.warning(
+                    "compact_shard: schema drift blob=%s extra_cols=%s missing_cols=%s"
+                    " — aligning to first-seen schema (shard=%s/%s)",
+                    name,
+                    extra,
+                    missing,
+                    asset_group,
+                    data_type,
+                )
+                aligned: list[dict[str, object]] = [{k: row.get(k) for k in target_names} for row in file_rows]
+                batch_table = pa.Table.from_pandas(
+                    pd.DataFrame.from_records(aligned), schema=pq_schema, preserve_index=False
+                )
+            else:
+                batch_table = batch_table.cast(pq_schema)
+        if pq_writer is None:
+            pq_schema = batch_table.schema
+            pq_writer = pq.ParquetWriter(cold_buf, pq_schema)
+        pq_writer.write_table(batch_table)
 
     if pq_writer is None:
         logger.warning(
