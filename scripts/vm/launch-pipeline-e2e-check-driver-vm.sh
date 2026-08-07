@@ -134,19 +134,30 @@ if [[ "${LC_DRY_RUN:-false}" != "true" ]]; then
     || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
-METADATA="VM_TASK=pipeline-e2e-check"
-METADATA="${METADATA},VM_SERVICE=${VM_SERVICE}"
-METADATA="${METADATA},VM_ASSET_GROUP=E2E-CHECK-DRIVER"
-METADATA="${METADATA},VM_MIGRATION_CMD=${MIGRATION_CMD}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+# VM_MIGRATION_CMD embeds the FULL checker CLI, whose flags include commas
+# (--legs force,skip). gcloud's --metadata dict parser splits entries on ',' and
+# honors NO backslash escapes — the documented way to embed a ',' in a value is
+# the ^DELIM^ alternate-delimiter syntax (`gcloud topic escaping`), so build the
+# metadata in that form: EVERY pair joined by '|' (never present in this
+# launcher's keys/values), VM_MIGRATION_CMD's commas left as literal value
+# characters. The VM side reads the attribute raw and shell-evals it, so the
+# %q-escaped `force\,skip` round-trips to `force,skip` there. (Bug found
+# 2026-08-07: the comma-joined form made every launch fail with `Bad syntax for
+# dict arg`.)
+METADATA="^|^startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+METADATA="${METADATA}|VM_TASK=pipeline-e2e-check"
+METADATA="${METADATA}|VM_SERVICE=${VM_SERVICE}"
+METADATA="${METADATA}|VM_ASSET_GROUP=E2E-CHECK-DRIVER"
+METADATA="${METADATA}|VM_MIGRATION_CMD=${MIGRATION_CMD}"
+METADATA="${METADATA}|DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # Ephemeral: self-delete on completion, same as the smoke VMs this mirrors --
 # a driver run has no reason to leave a stopped VM (+ its boot disk) billing.
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA}|VM_SHUTDOWN_ON_COMPLETION=true"
 
 echo "Launching ${VM_NAME} (service=${VM_SERVICE}, cmd=${MIGRATION_CMD})"
 
 lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "$MACHINE_TYPE" "$DISK_GB" \
-  "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+  "$METADATA" \
   "purpose=pipeline-e2e-check-driver,service=${SERVICE_ALIAS},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
   "$(lc_tier_service_account "$DEPLOYMENT_ENV" "$PROJECT" "true")"
 
