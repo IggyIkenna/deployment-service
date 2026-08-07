@@ -46,9 +46,11 @@ from unified_trading_library import (
 )
 from unified_trading_library.cloud_interface import get_compute_engine_client  # noqa: qg-deep-import
 
+from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS as _CLOUD_RUN_JOBS
 from deployment_service.data_pipeline_monitors import (
     _compute_ops,
     _gcs,
+    cloud_run_job_watcher,
     consolidator_oom_watcher,
     consolidator_scheduler_watcher,
     exit_code_fleet_monitor,
@@ -861,6 +863,19 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 index_age_reader=consolidator_oom_watcher.make_consolidator_index_age_reader(
                     storage_client, _market_data_bucket
+                ),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-WATCHER-006: generic Cloud Run Job failure detector — all registered jobs.
+            # Emits DP_CLOUD_RUN_JOB_FAILED (FILE_ISSUE) when the most recent failed
+            # execution is newer than any successful one, gated on MissTracker so a
+            # single transient failure that self-heals on the next trigger does not page.
+            cloud_run_job_watcher.check_cloud_run_jobs(
+                jobs=_CLOUD_RUN_JOBS,
+                execution_reader=cloud_run_job_watcher.make_cloud_run_job_execution_reader(
+                    project_id=_project_id(), env_prefix=_scheduler_env_prefix()
                 ),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
