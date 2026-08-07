@@ -341,3 +341,98 @@ trap _lc_final_upload EXIT
 # --- end lc_aws_log_upload_trap_block ---
 TRAPSNIPPET
 }
+
+# ---------------------------------------------------------------------------
+# lc_aws_log_upload_continuous_block <vm_name> <account_id> [asset_group] [task]
+# ---------------------------------------------------------------------------
+# AWS mirror of lc_log_upload_continuous_block (gcloud storage → aws s3 cp):
+# durable observability for a LONG-LIVED, non-self-terminating EC2 instance
+# (e.g. the orchestrator planning VM, the orchestrator-worker VM) that:
+#   - runs indefinitely (no scheduled self-shutdown)
+#   - does NOT need EXIT_STATUS or VM_SHUTDOWN_ON_COMPLETION semantics
+#   - still needs continuous S3 log shipping + liveness heartbeat visibility
+#
+# Emits a bash snippet to inject AT THE TOP of an EC2 user-data heredoc body.
+# The snippet:
+#   1. Tees stdout+stderr to /var/log/run.log.
+#   2. Writes /usr/local/bin/lc-s3-log-stream.sh and starts it via systemd-run
+#      as a transient unit named lc-s3-log-stream-<vm_name>. The transient unit
+#      survives the user-data service's exit — unlike a plain & subshell, which
+#      is killed when the systemd unit managing it tears down its cgroup.
+#   3. The streamer uploads the growing log to
+#        s3://uts-prod-deployment-state/vm-logs/<vm-name>/run.log
+#      and writes a heartbeat object to
+#        s3://uts-prod-deployment-state/vm-heartbeat/<vm-name>.txt
+#      every LC_LOG_STREAM_INTERVAL seconds (default 30), same contract as
+#      lc_aws_log_upload_trap_block — these paths are polled by the vm-zombie-
+#      watchdog.
+#
+# Key differences from lc_aws_log_upload_trap_block:
+#   - No EXIT_STATUS marker (long-lived VMs do not self-terminate).
+#   - No shutdown-on-exit trap.
+#   - Streamer runs in a systemd transient unit (survives user-data service exit).
+#
+# Caller pattern (identical to lc_aws_log_upload_trap_block):
+#   LOG_TRAP="$(lc_aws_log_upload_continuous_block "$VM_NAME" "$ACCOUNT_ID" ao planning-vm)"
+#   cat > "${USER_DATA_FILE}" <<STARTUP_EOF
+#   #!/bin/bash
+#   ${LOG_TRAP}
+#   set -euo pipefail
+#   # ... rest of user-data ...
+#   STARTUP_EOF
+lc_aws_log_upload_continuous_block() {
+    local vm_name="${1:?lc_aws_log_upload_continuous_block: vm_name required}"
+    local account_id="${2:?lc_aws_log_upload_continuous_block: account_id required}"
+    local asset_group="${3:-UNKNOWN}"
+    local task="${4:-vm-exec}"
+    local code_bucket="uts-prod-deployment-state"
+    local region="${AWS_DEFAULT_REGION:-ap-northeast-1}"
+    local stream_interval="${LC_LOG_STREAM_INTERVAL:-30}"
+    cat <<CONTBLOCK
+# --- lc_aws_log_upload_continuous_block (deployment-service/scripts/vm/lib/aws_ec2_launch_lib.sh) ---
+# Durable observability for a long-lived (non-self-terminating) EC2 instance:
+# continuous S3 log stream (every ${stream_interval}s) + liveness heartbeat object.
+# No EXIT_STATUS or shutdown semantics — use lc_aws_log_upload_trap_block for
+# batch/backfill VMs that self-terminate.
+# Canonical run.log path: s3://${code_bucket}/vm-logs/${vm_name}/run.log
+LOG_LOCAL="/var/log/run.log"
+S3_LOG_URI="s3://${code_bucket}/vm-logs/${vm_name}/run.log"
+S3_HEARTBEAT_URI="s3://${code_bucket}/vm-heartbeat/${vm_name}.txt"
+S3_REGION="${region}"
+LC_STREAM_INTERVAL=${stream_interval}
+LC_VM_ASSET_GROUP="${asset_group}"
+LC_VM_TASK="${task}"
+LC_START_EPOCH=\$(date +%s)
+mkdir -p "\$(dirname "\$LOG_LOCAL")" 2>/dev/null || true
+exec > >(tee -a "\$LOG_LOCAL") 2>&1
+echo "=== VM STARTED \$(date -u +'%Y-%m-%dT%H:%M:%SZ') vm=${vm_name} asset_group=${asset_group} task=${task} ==="
+# Write the S3 log-stream helper to a stable path. The helper is started as a
+# transient systemd unit (below) so it survives the user-data service exit.
+# A plain & subshell would be killed when the user-data systemd unit tears down
+# its cgroup on exit — that is the gap this approach closes.
+cat > /usr/local/bin/lc-s3-log-stream.sh << '__LC_STREAM_EOF__'
+#!/usr/bin/env bash
+# Continuous S3 log/heartbeat stream for a long-lived EC2 instance.
+# Args: <log_file> <s3_log_uri> <s3_heartbeat_uri> <interval_s> <region> <vm_name> <asset_group> <task> <start_epoch>
+_LC_LOG="\$1"; _LC_S3_LOG="\$2"; _LC_S3_HB="\$3"; _LC_INTERVAL="\$4"
+_LC_REGION="\$5"; _LC_VM="\$6"; _LC_AG="\$7"; _LC_TASK="\$8"; _LC_EPOCH="\$9"
+while true; do
+    aws s3 cp "\$_LC_LOG" "\$_LC_S3_LOG" --region "\$_LC_REGION" --quiet 2>/dev/null || true
+    printf 'vm=%s asset_group=%s task=%s alive_at=%s uptime_s=%s\n' \
+        "\$_LC_VM" "\$_LC_AG" "\$_LC_TASK" \
+        "\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "\$(( \$(date +%s) - _LC_EPOCH ))" \
+        | aws s3 cp - "\$_LC_S3_HB" --region "\$_LC_REGION" --quiet 2>/dev/null || true
+    sleep "\$_LC_INTERVAL"
+done
+__LC_STREAM_EOF__
+chmod +x /usr/local/bin/lc-s3-log-stream.sh
+# Start the streamer as a transient systemd unit so it survives this user-data
+# service exit. The stable unit name means repeat runs replace the previous
+# instance rather than accumulating stale units.
+systemd-run --unit=lc-s3-log-stream-${vm_name} --remain-after-exit \
+    /usr/local/bin/lc-s3-log-stream.sh \
+    "\$LOG_LOCAL" "\$S3_LOG_URI" "\$S3_HEARTBEAT_URI" "\$LC_STREAM_INTERVAL" "\$S3_REGION" \
+    "${vm_name}" "${asset_group}" "${task}" "\$LC_START_EPOCH" 2>/dev/null || true
+# --- end lc_aws_log_upload_continuous_block ---
+CONTBLOCK
+}

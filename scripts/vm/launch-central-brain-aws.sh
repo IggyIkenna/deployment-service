@@ -103,6 +103,7 @@ if $DRY_RUN; then
 fi
 
 # ── user-data: export the canonical id, then bootstrap as a PLANNING host ──
+LOG_TRAP="$(lc_aws_log_upload_continuous_block "${VM_NAME}" "${AWS_ACCOUNT_ID}" ao planning-vm)"
 USER_DATA_FILE="$(mktemp /tmp/startup-central-brain-XXXX.sh)"
 # shellcheck disable=SC2064
 trap "rm -f '${USER_DATA_FILE}'" EXIT
@@ -123,8 +124,7 @@ export CLOUD_MOCK_MODE=false
 export AWS_DEFAULT_REGION="${AWS_REGION}"
 export AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID}"
 
-exec > >(tee /var/log/central-brain-bootstrap.log) 2>&1
-echo "=== Central/Planning VM Startup: ${VM_NAME} (id=${ORCHESTRATOR_VM_ID}) ==="
+${LOG_TRAP}
 date
 
 apt-get update -qq
