@@ -49,6 +49,7 @@ from unified_trading_library.cloud_interface import get_compute_engine_client  #
 from deployment_service.data_pipeline_monitors import (
     _compute_ops,
     _gcs,
+    cloud_run_job_failure_watcher,
     consolidator_oom_watcher,
     consolidator_scheduler_watcher,
     exit_code_fleet_monitor,
@@ -861,6 +862,16 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 index_age_reader=consolidator_oom_watcher.make_consolidator_index_age_reader(
                     storage_client, _market_data_bucket
+                ),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-WATCHER-006: generic failure detector for all non-consolidator GCP Cloud Run Jobs
+            # in cloud_run_job_registry.CLOUD_RUN_JOBS (DP-WATCHER-005 covers consolidator family).
+            cloud_run_job_failure_watcher.check_cloud_run_job_failures(
+                execution_reader=cloud_run_job_failure_watcher.make_job_execution_reader(
+                    project_id=_project_id(), env_prefix=_scheduler_env_prefix()
                 ),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
