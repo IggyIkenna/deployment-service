@@ -27,6 +27,12 @@ import pandas as pd
 # whether/how often DP_RUN_MOSTLY_EMPTY still pages (see module docstring).
 STATIC_BACKLOG_STALE_DAYS_THRESHOLD = 1
 
+# Trailing window for the DP-FETCH-009 high-failure threshold: only attempted_failed rows
+# whose attempted_at falls within this many days of now count toward the abs/ratio check.
+# Cells whose root cause is fixed stop paging once their fixed-era failures age out of this
+# window — closes the lifetime-count false-alarm class (operator ruling 2026-08-06, option A).
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14
+
 
 def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> int | None:
     """Whole days between ``max_attempted_at`` (ISO-8601) and ``now`` (default: current
@@ -52,6 +58,21 @@ def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None
     ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
     moment = now or datetime.now(UTC)
     cutoff = pd.Timestamp(moment - timedelta(days=STATIC_BACKLOG_STALE_DAYS_THRESHOLD))
+    return ts >= cutoff
+
+
+def trailing_window_mask(
+    attempted_at: pd.Series, window_days: int, *, now: datetime | None = None
+) -> pd.Series:
+    """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within
+    ``window_days`` days of ``now``. NaT/unparseable rows are False — never counted
+    as within the window, mirroring ``stale_days_since``'s fail-safe convention.
+
+    Used by ``meta_watchers._read_attempted_failed_cells`` to compute the trailing
+    count that drives the DP-FETCH-009 abs/ratio threshold decision."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=window_days))
     return ts >= cutoff
 
 

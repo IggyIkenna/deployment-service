@@ -58,9 +58,11 @@ from deployment_service.data_pipeline_monitors._miss_tracker import (
     MissTracker,
 )
 from deployment_service.data_pipeline_monitors.attempted_failed_staleness import (
+    ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
     recent_activity_mask,
     stale_backlog_annotation,
     stale_days_since,
+    trailing_window_mask,
 )
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
@@ -475,6 +477,8 @@ class AttemptedFailedCell:
     max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
     stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
     recent_attempted_failed: int = 0  # attempted_failed rows within STATIC_BACKLOG_STALE_DAYS_THRESHOLD of now
+    trailing_attempted_failed: int = 0  # attempted_failed rows within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS of now
+    trailing_ratio: float = 0.0  # trailing_attempted_failed / (trailing_captured + trailing_attempted_failed)
 
 
 def _read_attempted_failed_cells(
@@ -521,10 +525,21 @@ def _read_attempted_failed_cells(
         attempted_failed = int((dt_mask & failed_mask).sum())
         denom = captured + attempted_failed
         ratio = (attempted_failed / denom) if denom > 0 else 0.0
-        high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
-            attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
-        )
         failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
+        captured_attempted_at = attempted_at_col[dt_mask & captured_mask]
+        # Trailing-window counts drive the high-failure verdict (option A, operator ruling
+        # 2026-08-06): only rows whose attempted_at falls within ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS
+        # count toward the abs/ratio thresholds. A cell whose root cause is already fixed stops
+        # paging once its fixed-era failures age out of the window.
+        trailing_failed = int(trailing_window_mask(failed_attempted_at, ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS).sum())
+        trailing_captured = int(
+            trailing_window_mask(captured_attempted_at, ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS).sum()
+        )
+        trailing_denom = trailing_captured + trailing_failed
+        trailing_ratio = (trailing_failed / trailing_denom) if trailing_denom > 0 else 0.0
+        high = trailing_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
+            trailing_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and trailing_ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
+        )
         max_attempted_at = max(failed_attempted_at, default="")
         recent_attempted_failed = int(recent_activity_mask(failed_attempted_at).sum())
         cells.append(
@@ -539,6 +554,8 @@ def _read_attempted_failed_cells(
                 max_attempted_at=max_attempted_at,
                 stale_days=stale_days_since(max_attempted_at),
                 recent_attempted_failed=recent_attempted_failed,
+                trailing_attempted_failed=trailing_failed,
+                trailing_ratio=trailing_ratio,
             )
         )
     return cells
@@ -565,9 +582,17 @@ def check_high_attempted_failed(
     market-data ``_index`` bucket (``label`` = the asset_group); the read is the
     same blob the consolidator writes.
 
-    A cell is HIGH when its ``attempted_failed`` count crosses
+    **Trailing-window threshold (operator ruling 2026-08-06, option A)**: the HIGH
+    verdict is computed over the ``ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS``-day trailing
+    window of ``attempted_at``, not the full lifetime manifest count. A cell whose
+    root cause is already fixed stops paging once its fixed-era failures age out of
+    the window (~14 days). The ``attempted_failed`` / ``ratio`` fields on the returned
+    ``AttemptedFailedCell`` remain lifetime counts (for diagnosability); the decision
+    fields are ``trailing_attempted_failed`` / ``trailing_ratio``.
+
+    A cell is HIGH when its trailing ``attempted_failed`` count crosses
     ``ATTEMPTED_FAILED_ABS_THRESHOLD`` OR (count >= ``MIN_ATTEMPTED_FAILED_FOR_RATIO``
-    AND ratio >= ``ATTEMPTED_FAILED_RATIO_THRESHOLD``). When ``miss_tracker`` is
+    AND trailing ratio >= ``ATTEMPTED_FAILED_RATIO_THRESHOLD``). When ``miss_tracker`` is
     provided the CRITICAL alert fires only after the SAME cell has been HIGH for
     ``min_consecutive`` consecutive sweeps (so a transient consolidator blip during
     a heavy backfill never false-pages); ``None`` ⇒ fire on the first HIGH cell
@@ -636,9 +661,10 @@ def check_high_attempted_failed(
             )
             summary = (
                 f"high attempted_failed batch — asset_group={cell.asset_group} "
-                f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
-                f"of {cell.captured + cell.attempted_failed} attempted "
-                f"(ratio {cell.ratio:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
+                f"data_type={cell.data_type}: {cell.trailing_attempted_failed} attempted_failed "
+                f"in last {ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS}d "
+                f"(lifetime total {cell.attempted_failed} of {cell.captured + cell.attempted_failed} attempted; "
+                f"trailing ratio {cell.trailing_ratio:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
                 f"or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%}). A backfill exited "
                 f"0 / captured climbed but failed this batch invisibly."
             ) + staleness_note
@@ -658,6 +684,9 @@ def check_high_attempted_failed(
                         "captured": cell.captured,
                         "attempted_failed": cell.attempted_failed,
                         "ratio": round(cell.ratio, 4),
+                        "trailing_attempted_failed": cell.trailing_attempted_failed,
+                        "trailing_ratio": round(cell.trailing_ratio, 4),
+                        "trailing_window_days": ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
                         "abs_threshold": ATTEMPTED_FAILED_ABS_THRESHOLD,
                         "ratio_threshold": ATTEMPTED_FAILED_RATIO_THRESHOLD,
                         "bucket": target.bucket,
