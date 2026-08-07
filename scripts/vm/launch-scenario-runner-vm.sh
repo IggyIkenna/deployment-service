@@ -49,11 +49,10 @@ SINGLE_ARCHETYPE=""
 RUN_DATE="$(date +%Y-%m-%d)"
 
 _positional=()
-DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dry-run) DRY_RUN=true; shift ;;
+    --dry-run) export LC_DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --archetype) SINGLE_ARCHETYPE="$2"; shift 2 ;;
@@ -131,34 +130,16 @@ for KEY in "${ARCHETYPES[@]}"; do
   METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-  if [[ "${DRY_RUN:-false}" == "true" ]]; then
-    echo "[DRY-RUN] Would create VM: "$VM_NAME""
-    echo "[DRY-RUN] (gcloud compute instances create skipped)"
-  else
-    if [[ "${DRY_RUN:-false}" != "true" ]]; then
-        lc_verify_tarball_freshness "$CODE_BUCKET" \
-            unified-trading-library unified-api-contracts deployment-service \
-            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
-    fi
-
-    if [[ "${DRY_RUN:-false}" != "true" ]]; then
-        lc_verify_tarball_freshness "$CODE_BUCKET" \
-            unified-trading-library unified-api-contracts deployment-service \
-            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
-    fi
-
-    gcloud compute instances create "$VM_NAME" \
-      --project="$PROJECT" \
-  --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
-      --zone="$ZONE" \
-      --machine-type=e2-standard-2 \
-      --image-family=ubuntu-2404-lts-amd64 \
-      --image-project=ubuntu-os-cloud \
-      --boot-disk-size=50GB \
-      --scopes=cloud-platform \
-      --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-      --labels=purpose=scenario-matrix,archetype="${KEY}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
+  if [[ "${LC_DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          unified-trading-library unified-api-contracts deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
   fi
+
+  lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "e2-standard-2" "50" \
+      "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+      "purpose=scenario-matrix,archetype=${KEY},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
+      "$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")"
 
   launched+=("$VM_NAME")
 done
