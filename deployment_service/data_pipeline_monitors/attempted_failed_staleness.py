@@ -55,6 +55,23 @@ def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None
     return ts >= cutoff
 
 
+def trailing_window_mask(attempted_at: pd.Series, *, days: int, now: datetime | None = None) -> pd.Series:
+    """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within ``days``
+    of ``now`` OR where ``attempted_at`` is empty/unparseable.
+
+    The NaT/empty case returns True (fail toward alerting) — an unknown timestamp does
+    not mean the failure isn't recent; this is the opposite convention from
+    :func:`recent_activity_mask` (which returns False for NaT as a labeling-only
+    helper) because here the mask drives the HIGH verdict, not a diagnostic annotation.
+    Used by ``check_high_attempted_failed`` to scope the abs/ratio thresholds to a
+    trailing recency window so a cell whose root cause was fixed stops paging once
+    its fixed-era failures age out of the window."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=days))
+    return ts.isna() | (ts >= cutoff)
+
+
 def stale_backlog_annotation(
     stale_days: int | None,
     *,

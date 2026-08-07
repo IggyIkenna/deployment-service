@@ -2639,39 +2639,49 @@ def test_high_attempted_failed_ratio_guard_ignores_micro_cell(monkeypatch):
 
 
 def test_known_dead_cell_suppressed_despite_crossing_threshold(monkeypatch):
-    # The registered CBOE ohlcv_15m cell: high (crosses ABS_THRESHOLD) but every row's
-    # attempted_at is BEFORE the registered narrowing date → suppressed, never pages.
+    # The known-dead suppression path: monkeypatch is_known_dead so it returns True
+    # regardless of timestamps (the registry's narrowed_at is 2026-07-15, which is now
+    # outside the 14-day trailing window; this test targets the suppression logic itself,
+    # not the time-math in is_known_dead). Rows use recent timestamps so trailing_attempted_failed
+    # exceeds the ABS threshold and high=True — verifying the cell IS high but still suppressed.
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    recent_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [("ohlcv_15m", "attempted_failed", recent_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.is_known_dead",
+        lambda *a, **kw: True,
+    )
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
     cell = next(c for c in cells if c.data_type == "ohlcv_15m")
-    assert cell.high  # crosses the threshold ...
+    assert cell.high  # crosses the trailing-window threshold ...
     assert cell.known_dead  # ... but is the registered known-dead cell
     assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)  # so it never pages
 
 
 def test_known_dead_cell_with_new_activity_still_pages(monkeypatch):
-    # Same registered cell, but ONE row carries an attempted_at AFTER the narrowing
-    # date — genuinely new activity → known_dead must clear and the cell must page.
-    n_old = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 4
-    rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_old
-    rows.append(("ohlcv_15m", "attempted_failed", "2026-07-20T00:00:00Z"))
+    # Same registered cell, but ALL rows carry a recent attempted_at AFTER BOTH the
+    # registered narrowing date (2026-07-15) AND within the 14-day trailing window →
+    # known_dead clears (new activity after narrowed_at) and the cell must page.
+    recent_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_recent = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("ohlcv_15m", "attempted_failed", recent_ts)] * n_recent
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
     cell = next(c for c in cells if c.data_type == "ohlcv_15m")
     assert cell.high
-    assert not cell.known_dead
+    assert not cell.known_dead  # recent activity after narrowed_at → known_dead cleared
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
 
 def test_unregistered_cell_never_known_dead(monkeypatch):
     # A high cell for a (asset_group, data_type) NOT in the registry must page exactly
     # as before this change — the registry is opt-in, never a blanket suppression.
+    recent_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
     n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
-    rows = [("trades", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    rows = [("trades", "attempted_failed", recent_ts)] * n_failed
     storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
     emitted = _capture_emits(monkeypatch)
     cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
@@ -2679,6 +2689,25 @@ def test_unregistered_cell_never_known_dead(monkeypatch):
     assert cell.high
     assert not cell.known_dead
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_old_failures_outside_trailing_window_are_not_high(monkeypatch):
+    # THE CORE FIX (option A, cefi_liquidations_attempted_failed_lifetime_count_stale_2026_07_30.md):
+    # a cell whose failures ALL predate the trailing window must NOT be high, even when the
+    # LIFETIME count far exceeds ATTEMPTED_FAILED_ABS_THRESHOLD. This is what stopped the
+    # 36k-row cefi/liquidations cell (fixed 2026-07-28) from paging forever.
+    window = meta_watchers.ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS
+    old_ts = (datetime.now(UTC) - timedelta(days=window + 5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 100
+    rows = [("liquidations", "attempted_failed", old_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "liquidations")
+    assert cell.attempted_failed == n_failed  # lifetime count still recorded ...
+    assert cell.trailing_attempted_failed == 0  # ... but none are within the trailing window
+    assert not cell.high  # → not high, no page
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
 
 
 # ── DP-FETCH-009 staleness labeling (cefi_high_attempted_failed_batch_cluster_2026_07_23.md
