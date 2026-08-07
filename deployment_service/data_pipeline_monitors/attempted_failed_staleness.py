@@ -27,6 +27,13 @@ import pandas as pd
 # whether/how often DP_RUN_MOSTLY_EMPTY still pages (see module docstring).
 STATIC_BACKLOG_STALE_DAYS_THRESHOLD = 1
 
+# Trailing window used by check_high_attempted_failed to decide whether a cell is HIGH.
+# Only attempted_failed rows whose attempted_at falls within this many days of now count
+# toward the abs/ratio threshold — rows older than this are excluded regardless of their
+# lifetime total. Closes the "stale lifetime count keeps paging forever" class
+# (cefi_liquidations_attempted_failed_lifetime_count_stale_2026_07_30.md).
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14
+
 
 def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> int | None:
     """Whole days between ``max_attempted_at`` (ISO-8601) and ``now`` (default: current
@@ -40,6 +47,19 @@ def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> i
         return None
     moment = now or datetime.now(UTC)
     return max(0, (moment - ts.to_pydatetime()).days)
+
+
+def trailing_window_mask(
+    attempted_at: pd.Series, *, window_days: int, now: datetime | None = None
+) -> pd.Series:
+    """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within
+    ``window_days`` days of ``now``. NaT/unparseable rows are False. Used by
+    ``check_high_attempted_failed`` to restrict the threshold check to a trailing
+    window instead of the full lifetime manifest."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=window_days))
+    return ts >= cutoff
 
 
 def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
