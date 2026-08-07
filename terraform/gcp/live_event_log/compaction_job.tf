@@ -24,14 +24,15 @@ resource "google_cloud_run_v2_job" "live_event_log_compactor" {
         command = ["python"]
         args    = ["-m", "deployment_service.jobs.live_event_log_compactor"]
 
-        # Raised from default 512Mi: the (cefi, book_snapshot_5) shard (~1497 warm files/day)
-        # OOM-killed the job at 512Mi. 4Gi gives headroom for the current warm-tier volume and
-        # sustained growth. CPU raised to 2 to parallel-process the streaming parquet writes.
+        # Raised from 512Mi→4Gi→16Gi: the (cefi, book_snapshot_5) shard has ~1500 warm files/day,
+        # each ~170 MB NDJSON. The io.BytesIO cold-file buffer accumulates the full compressed
+        # Parquet output (~6 GB) before the GCS upload, requiring ~7–8 GB peak RAM. 4Gi OOM'd.
+        # 16Gi provides safe headroom. CPU raised to 4 for encoding throughput.
         # Issue: plans/active/issues/cefi_live_event_cold_compactor_oom_and_legacy_path_check_2026_08_07.md
         resources {
           limits = {
-            memory = "4Gi"
-            cpu    = "2"
+            memory = "16Gi"
+            cpu    = "4"
           }
         }
 
