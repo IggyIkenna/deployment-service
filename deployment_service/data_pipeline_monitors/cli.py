@@ -49,6 +49,7 @@ from unified_trading_library.cloud_interface import get_compute_engine_client  #
 from deployment_service.data_pipeline_monitors import (
     _compute_ops,
     _gcs,
+    cloud_run_job_exec_watcher,
     consolidator_oom_watcher,
     consolidator_scheduler_watcher,
     exit_code_fleet_monitor,
@@ -861,6 +862,19 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 index_age_reader=consolidator_oom_watcher.make_consolidator_index_age_reader(
                     storage_client, _market_data_bucket
+                ),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-VM-013: fleet-wide Cloud Run Job execution failure detector — reads every
+            # cloud_run_job_registry.CLOUD_RUN_JOBS entry's real execution history, not just
+            # the consolidator family. Generalises DP-WATCHER-005 to the full job inventory.
+            # (infra_health_audit_alert_coverage_gaps_2026_08_07.md todo 2)
+            cloud_run_job_exec_watcher.check_cloud_run_job_exec_failures(
+                job_stems=cloud_run_job_exec_watcher.all_cloud_run_job_stems(),
+                execution_failed_reader=cloud_run_job_exec_watcher.make_cloud_run_job_execution_reader(
+                    project_id=_project_id(), env_prefix=_scheduler_env_prefix()
                 ),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
