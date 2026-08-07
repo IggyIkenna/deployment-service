@@ -318,7 +318,26 @@ async def compact_shard(
             file_had_rows = True
             batch_table = pa.Table.from_pandas(pd.DataFrame.from_records(rows), preserve_index=False)
             if pq_schema is not None and batch_table.schema != pq_schema:
-                batch_table = batch_table.cast(pq_schema)
+                target_names: list[str] = pq_schema.names
+                batch_names: list[str] = batch_table.schema.names
+                extra = [n for n in batch_names if n not in target_names]
+                missing = [n for n in target_names if n not in batch_names]
+                if extra or missing:
+                    logger.warning(
+                        "compact_shard: schema drift blob=%s extra_cols=%s missing_cols=%s"
+                        " — aligning to first-seen schema (shard=%s/%s)",
+                        name,
+                        extra,
+                        missing,
+                        asset_group,
+                        data_type,
+                    )
+                    aligned: list[dict[str, object]] = [{k: row.get(k) for k in target_names} for row in rows]
+                    batch_table = pa.Table.from_pandas(
+                        pd.DataFrame.from_records(aligned), schema=pq_schema, preserve_index=False
+                    )
+                else:
+                    batch_table = batch_table.cast(pq_schema)
             if pq_writer is None:
                 pq_schema = batch_table.schema
                 pq_writer = pq.ParquetWriter(cold_buf, pq_schema)
