@@ -1087,9 +1087,12 @@ lc_verify_setup_script_freshness() {
         *) echo "WARNING: unknown LC_SETUP_SCRIPT_FRESHNESS='$mode' — treating as 'warn'" >&2; mode="warn" ;;
     esac
 
-    # metadata_str is comma-separated key=value; the GCS URL itself has no commas.
+    # metadata_str is comma-separated key=value (or ^|^-delimiter form from
+    # launch-pipeline-e2e-check-driver-vm.sh, whose VM_MIGRATION_CMD value
+    # embeds commas); the GCS URL itself has no commas, so stop the value at
+    # ',' OR the alternate '|' delimiter whichever comes first.
     local gcs_url
-    gcs_url="$(printf '%s' "$metadata_str" | grep -oE 'startup-script-url=gs://[^,]+' | sed 's/^startup-script-url=//' || true)"
+    gcs_url="$(printf '%s' "$metadata_str" | grep -oE 'startup-script-url=gs://[^|,]+' | sed 's/^startup-script-url=//' || true)"
     if [[ -z "$gcs_url" ]]; then
         return 0
     fi
