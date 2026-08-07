@@ -90,6 +90,36 @@ DEFAULT_GRACE_MINUTES = 10.0  # don't flag a VM in its first N minutes (boot/war
 # is never reclaimed (the gap behind the relaunch actuator's "already KILLED"
 # assumption). SSOT: tradfi_databento_backfill_hang_remediation_2026_06_23.md.
 DEFAULT_KILL_MINUTES = 45.0
+
+# Per-prefix kill_minutes overrides (mirrors vm_zombie_watchdog.PREFIX_IDLE_THRESHOLDS,
+# which added the SAME override for the SAME incident class on 2026-08-06 — but that
+# fix only touched the standing VM-side watchdog daemon, not this SEPARATE Cloud-Run
+# heartbeat sweep, which also watches ``canonical-migration-`` VMs per
+# ``_is_backfill_vm``'s docstring above). A ``canonical-migration-`` VM runs a single
+# whole-index download+filter+CAS-rewrite that legitimately shows NO heartbeat/
+# run.log/shard progress for 30-60+ min, so DEFAULT_KILL_MINUTES=45.0 kills it
+# mid-operation. Root-caused 2026-08-07 via Cloud Audit Log: the delete of
+# canonical-migration-defi-gas-fees-legacy-purge-20260807-100248 at
+# 2026-08-07T10:55:51Z (~50 min after its heartbeat sidecar died) carried
+# ``serviceAccountDelegationInfo.firstPartyPrincipal=service-*.serverless-robot-
+# prod.iam.gserviceaccount.com`` (a Cloud Run identity) — NOT the VM-side watchdog
+# daemon, which independently logged "killed 0/0 zombies" across the exact kill
+# window (its own 90-min canonical-migration- threshold never even had a chance to
+# fire). SSOT: defi_gas_fees_legacy_purge_manifest_step_blocked_vm_infra_flakiness_
+# 2026_08_05.md.
+PREFIX_KILL_MINUTES: dict[str, float] = {
+    "canonical-migration-": 90.0,
+}
+
+
+def _resolve_kill_minutes(vm_name: str, default_kill_minutes: float) -> float:
+    """Longest-prefix-match ``kill_minutes`` override, falling back to ``default_kill_minutes``."""
+    for prefix, minutes in sorted(PREFIX_KILL_MINUTES.items(), key=lambda x: -len(x[0])):
+        if vm_name.startswith(prefix):
+            return minutes
+    return default_kill_minutes
+
+
 # Fleet-wide cap on auto-kills per sweep (a runaway kill loop must never delete the
 # whole fleet — if >N VMs read stalled in one tick that is a watcher bug / fleet
 # incident a human must see, not auto-reap). Env-tunable via MTDS_DP_VM_KILL_CAP.
@@ -698,9 +728,13 @@ def sweep(
         # wave-launcher reclaims its cap-20 slot. Guarded by should_auto_kill
         # (backfill-only, NOT live, stale past kill_minutes) + a per-sweep cap (a
         # runaway must page a human, never reap the whole fleet). dry_run logs the
-        # WOULD-kill without deleting.
+        # WOULD-kill without deleting. ``effective_kill_minutes`` applies the
+        # PREFIX_KILL_MINUTES override (e.g. canonical-migration- → 90min) instead
+        # of the flat global default, so a legitimately-silent long-running
+        # migration VM survives its own operation window.
+        effective_kill_minutes = _resolve_kill_minutes(vm_name, kill_minutes)
         if vm_killer is not None and should_auto_kill(
-            result, is_backfill=is_backfill, umbrella=umbrella, kill_minutes=kill_minutes
+            result, is_backfill=is_backfill, umbrella=umbrella, kill_minutes=effective_kill_minutes
         ):
             if kills_this_sweep >= kill_cap_per_sweep:
                 logger.warning(
@@ -718,7 +752,7 @@ def sweep(
                         "(stall_age=%.0fm >= kill_minutes=%.0f) to reclaim its slot",
                         vm_name,
                         stall_age or 0.0,
-                        kill_minutes,
+                        effective_kill_minutes,
                     )
                     killed = False
                 else:
@@ -740,7 +774,7 @@ def sweep(
                             "umbrella": umbrella,
                             "recovery_action": "auto_kill_stalled_vm",
                             "stall_age_min": stall_age,
-                            "kill_minutes": kill_minutes,
+                            "kill_minutes": effective_kill_minutes,
                             "killed": killed,
                             "registry_id": "DP-VM-005",
                             "cloud": "GCP",
