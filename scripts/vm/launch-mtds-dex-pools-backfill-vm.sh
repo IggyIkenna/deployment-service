@@ -17,7 +17,13 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# Bumped e2-standard-4 -> e2-highmem-4 (2026-08-07, mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md
+# P2 launcher audit): dex_pools_handler.py fans out per (protocol, chain) shard via
+# ParallelPerSymbolRunner(max_concurrent=defi_max_inflight_tasks) with NO byte-budget cap --
+# the SAME architectural root cause diagnosed for CEFI Tardis + sports odds_api (task-COUNT
+# cap only), and dex_pools defaults to 16+ protocols x multiple chains each, a genuinely wide
+# per-day fan-out. Same fix, same margin the CEFI/sports precedents already validated.
+MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-4}"
 DRY_RUN=false
 START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
