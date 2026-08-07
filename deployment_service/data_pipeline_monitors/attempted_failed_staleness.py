@@ -27,6 +27,13 @@ import pandas as pd
 # whether/how often DP_RUN_MOSTLY_EMPTY still pages (see module docstring).
 STATIC_BACKLOG_STALE_DAYS_THRESHOLD = 1
 
+# Trailing window for DP-FETCH-009 threshold checks. Only attempted_failed rows with
+# attempted_at within this many days (or with no timestamp — treated as recent) count
+# toward the abs/ratio threshold. Fixes the lifetime-count paging problem: a cell whose
+# root cause was fixed stops paging once the fixed-era failures age out of the window.
+# Option A from cefi_liquidations_attempted_failed_lifetime_count_stale_2026_07_30.md.
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14
+
 
 def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> int | None:
     """Whole days between ``max_attempted_at`` (ISO-8601) and ``now`` (default: current
@@ -40,6 +47,21 @@ def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> i
         return None
     moment = now or datetime.now(UTC)
     return max(0, (moment - ts.to_pydatetime()).days)
+
+
+def trailing_window_mask(
+    attempted_at: pd.Series, *, window_days: int, now: datetime | None = None
+) -> pd.Series:
+    """Boolean mask, True where attempted_at falls within window_days of now OR is NaT/unparseable.
+
+    NaT/unparseable rows are treated as recent (conservative: unknown timestamps are never
+    silently suppressed). Used by ``_read_attempted_failed_cells`` to count only the recent
+    slice of a cell's ``attempted_failed`` population for the DP-FETCH-009 threshold check.
+    """
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=window_days))
+    return ts.isna() | (ts >= cutoff)
 
 
 def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
