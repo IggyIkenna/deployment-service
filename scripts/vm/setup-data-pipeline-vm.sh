@@ -832,6 +832,14 @@ if timeout 30 gcloud storage ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; the
     fi
   done
   log "Code deployed from GCS (${#INSTALLED_DIRS[@]} repos)"
+  # pipeline_e2e_check.py drivers (mtds/features/mdps — is resolves via its own
+  # helper) shell out to launchers at <workspace>/deployment-service/scripts/vm/,
+  # but the tarball extracts to the TARBALL_DIRS short name <workspace>/deployment.
+  # Bridge with a symlink so driver VMs can find the registered launchers (found
+  # 2026-08-07: every per-shard launch exited 127 with 'No such file or directory').
+  if [[ -d "$WORKSPACE/deployment" ]]; then
+    ln -sfn "$WORKSPACE/deployment" "$WORKSPACE/deployment-service"
+  fi
 elif [ -f /home/ikennaigboaka/unified-api-contracts-code.tar.gz ]; then
   tar xzf /home/ikennaigboaka/unified-api-contracts-code.tar.gz -C "$WORKSPACE/uac"
   tar xzf /home/ikennaigboaka/unified-trading-library-code.tar.gz -C "$WORKSPACE/utl"
