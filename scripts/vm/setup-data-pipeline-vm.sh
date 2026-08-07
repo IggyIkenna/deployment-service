@@ -2569,7 +2569,7 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
   # becomes its own async aggregator + DISTINCT Redis consumer in the shared
   # "mdps" group (market-data-processing-service@df45ef8). Default 1 = today's
   # exact one-process-per-shard behaviour.
-  _mfl_shards_per_worker="${MDPS_SHARDS_PER_WORKER:-1}"
+  _mfl_shards_per_worker="$(_meta MDPS_SHARDS_PER_WORKER 1)"
   case "$_mfl_shards_per_worker" in
     '' | *[!0-9]*)
       _mfl_shards_per_worker=1
