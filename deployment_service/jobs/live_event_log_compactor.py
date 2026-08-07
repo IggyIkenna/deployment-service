@@ -45,12 +45,44 @@ from datetime import UTC, date, datetime, timedelta
 from typing import cast
 
 import pandas as pd
-from pydantic import ValidationError
+from pydantic import AliasChoices, Field, ValidationError
 from unified_api_contracts.events.persist import CanonicalPersistEnvelope, RetentionClass  # noqa: qg-deep-import
 from unified_api_contracts.events.sink_matrix import SINK_MATRIX, SinkConfig  # noqa: qg-deep-import
 from unified_trading_library import UnifiedCloudConfig, get_storage_client, resolve_bucket_name
 
 logger = logging.getLogger(__name__)
+
+
+class CompactorConfig(UnifiedCloudConfig):
+    """Job-local config for the live-event-log compactor Cloud Run Job.
+
+    Adds two compactor-specific env var overrides on top of UnifiedCloudConfig:
+
+    ``DRY_RUN=1``
+        Skip GCS writes; log what would have been written.  Useful for smoke-testing
+        the compaction loop against a live warm bucket without materialising cold files.
+
+    ``COMPACTION_DATE=YYYY-MM-DD``
+        Override the target date instead of using yesterday (UTC).  Used for
+        single-date backfill: trigger the Cloud Run Job with this env var set to
+        the missed date.  When empty (default), the job compacts yesterday as usual.
+    """
+
+    dry_run: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("DRY_RUN"),
+        description="Skip GCS writes (dry-run mode). Set DRY_RUN=1 to enable.",
+    )
+
+    compaction_date: str = Field(
+        default="",
+        validation_alias=AliasChoices("COMPACTION_DATE"),
+        description=(
+            "ISO-8601 date (YYYY-MM-DD) to compact instead of yesterday. "
+            "Used for backfill: trigger the Cloud Run Job with COMPACTION_DATE=2026-08-01 "
+            "to recompact a specific missed date. Empty = use yesterday (normal daily run)."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,18 +373,31 @@ async def run_compaction(*, target_date: date, dry_run: bool = False) -> None:
 def main() -> None:
     """Cloud Run Job entry-point.
 
-    Cloud Scheduler invokes the job daily at 2 AM UTC. By default compacts
-    yesterday's warm files (UTC). Set ``DRY_RUN=1`` in the job env to skip writes.
+    Cloud Scheduler invokes the job daily at 2 AM UTC.  By default compacts
+    yesterday's warm files (UTC).
+
+    Env var overrides (see :class:`CompactorConfig`):
+    - ``DRY_RUN=1`` — skip GCS writes.
+    - ``COMPACTION_DATE=YYYY-MM-DD`` — compact a specific date instead of yesterday;
+      used for backfill after the OOM fix (see plan issue
+      ``cefi_live_event_cold_compactor_oom_and_legacy_path_check_2026_08_07.md`` todo 2).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    cfg = UnifiedCloudConfig()
-    # UnifiedCloudConfig exposes config via typed fields.
-    # dry_run reads from the typed config field if available; defaults False.
-    dry_run: bool = getattr(cfg, "dry_run", False)
+    cfg = CompactorConfig()
 
-    yesterday = datetime.now(UTC).date() - timedelta(days=1)
-    asyncio.run(run_compaction(target_date=yesterday, dry_run=dry_run))
+    if cfg.compaction_date:
+        try:
+            target_date = date.fromisoformat(cfg.compaction_date)
+        except ValueError:
+            raise ValueError(
+                f"COMPACTION_DATE={cfg.compaction_date!r} is not a valid ISO-8601 date (YYYY-MM-DD)"
+            ) from None
+        logger.info("main: COMPACTION_DATE override active — compacting %s (not yesterday)", target_date)
+    else:
+        target_date = datetime.now(UTC).date() - timedelta(days=1)
+
+    asyncio.run(run_compaction(target_date=target_date, dry_run=cfg.dry_run))
 
 
 if __name__ == "__main__":
