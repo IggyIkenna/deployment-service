@@ -369,6 +369,24 @@ resource "google_project_iam_member" "uts_tier_sa_run_invoker" {
   member   = "serviceAccount:${each.value}"
 }
 
+# run.developer (2026-08-07): the 2026-07-31 SA migration (deployment-service@118ad9e) moved
+# deployment-api's own runtime identity from unified-trading-sa (which held run.admin +
+# run.developer, main.tf) to uts-prd-sa (invoker-only here) but never re-granted deploy-capable
+# roles -- nothing exercised deployment_api/routes/builds.py's `gcloud run deploy <OTHER
+# service>` path (used by the service-deployed auto-deploy listener) until the listener's first
+# real dispatch, which then failed PERMISSION_DENIED on `run.services.get`. LIVE-APPLIED first
+# via `gcloud projects add-iam-policy-binding` to unblock the in-flight alerting-service deploy;
+# this declaration brings config back in sync with that live grant (see the uts_tier_sa_run_invoker
+# 2026-07-31 comment above for the same live-then-declare pattern). SSOT:
+# plans/active/issues/image_build_validate_stranded_on_deregistered_glue_runners_2026_08_07.md
+# (sibling finding from the same alerting-service deploy-chain chase).
+resource "google_project_iam_member" "uts_tier_sa_run_developer" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${each.value}"
+}
+
 resource "google_project_iam_member" "uts_tier_sa_pubsub_editor" {
   for_each = local.uts_tier_sa_non_storage_grantees
   project  = var.project_id
