@@ -40,6 +40,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pandas as pd
@@ -227,6 +228,7 @@ def _cron_miss_key(target: FreshnessTarget) -> str:
 ATTEMPTED_FAILED_ABS_THRESHOLD = 500  # absolute attempted_failed count per (ag, data_type) → page
 ATTEMPTED_FAILED_RATIO_THRESHOLD = 0.10  # attempted_failed / (captured + attempted_failed) → page
 MIN_ATTEMPTED_FAILED_FOR_RATIO = 50  # ratio path ignored below this count (avoid micro-cell noise)
+ATTEMPTED_FAILED_ALERT_WINDOW_DAYS = 7  # trailing window for the `high` verdict; rejects stale history
 # STATIC_BACKLOG_STALE_DAYS_THRESHOLD: labeling-only constant, see attempted_failed_staleness.py.
 # Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
 AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
@@ -475,6 +477,8 @@ class AttemptedFailedCell:
     max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
     stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
     recent_attempted_failed: int = 0  # attempted_failed rows within STATIC_BACKLOG_STALE_DAYS_THRESHOLD of now
+    attempted_failed_window: int = 0  # attempted_failed rows within ATTEMPTED_FAILED_ALERT_WINDOW_DAYS of now
+    ratio_window: float = 0.0  # attempted_failed_window / (captured_window + attempted_failed_window)
 
 
 def _read_attempted_failed_cells(
@@ -512,6 +516,10 @@ def _read_attempted_failed_cells(
     attempted_at_col = index["attempted_at"].astype(str)
     captured_mask = status == "captured"
     failed_mask = status == "attempted_failed"
+    # Trailing-window mask: rows with attempted_at="" (legacy/unknown) parse to NaT
+    # → excluded (treated as old history, not fresh failures).
+    _window_cutoff = pd.Timestamp(datetime.now(UTC) - timedelta(days=ATTEMPTED_FAILED_ALERT_WINDOW_DAYS))
+    window_mask = pd.to_datetime(attempted_at_col, utc=True, errors="coerce") >= _window_cutoff
 
     cells: list[AttemptedFailedCell] = []
     # Stable order so the alert set + tests are deterministic (no set iteration).
@@ -521,8 +529,15 @@ def _read_attempted_failed_cells(
         attempted_failed = int((dt_mask & failed_mask).sum())
         denom = captured + attempted_failed
         ratio = (attempted_failed / denom) if denom > 0 else 0.0
-        high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
-            attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
+        # Windowed counts for the `high` verdict (DP-FETCH-009 trailing-window fix).
+        window = window_mask & dt_mask
+        attempted_failed_window = int((window & failed_mask).sum())
+        captured_window = int((window & captured_mask).sum())
+        denom_window = captured_window + attempted_failed_window
+        ratio_window = (attempted_failed_window / denom_window) if denom_window > 0 else 0.0
+        high = attempted_failed_window >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
+            attempted_failed_window >= MIN_ATTEMPTED_FAILED_FOR_RATIO
+            and ratio_window >= ATTEMPTED_FAILED_RATIO_THRESHOLD
         )
         failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
         max_attempted_at = max(failed_attempted_at, default="")
@@ -539,6 +554,8 @@ def _read_attempted_failed_cells(
                 max_attempted_at=max_attempted_at,
                 stale_days=stale_days_since(max_attempted_at),
                 recent_attempted_failed=recent_attempted_failed,
+                attempted_failed_window=attempted_failed_window,
+                ratio_window=ratio_window,
             )
         )
     return cells
@@ -636,11 +653,11 @@ def check_high_attempted_failed(
             )
             summary = (
                 f"high attempted_failed batch — asset_group={cell.asset_group} "
-                f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
-                f"of {cell.captured + cell.attempted_failed} attempted "
-                f"(ratio {cell.ratio:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
-                f"or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%}). A backfill exited "
-                f"0 / captured climbed but failed this batch invisibly."
+                f"data_type={cell.data_type}: {cell.attempted_failed_window} attempted_failed cells "
+                f"in the last {ATTEMPTED_FAILED_ALERT_WINDOW_DAYS}d "
+                f"(lifetime: {cell.attempted_failed}; "
+                f"ratio {cell.ratio_window:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
+                f"or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%})."
             ) + staleness_note
             _emit(
                 PipelineFinding(
@@ -657,7 +674,10 @@ def check_high_attempted_failed(
                         "data_type": cell.data_type,
                         "captured": cell.captured,
                         "attempted_failed": cell.attempted_failed,
+                        "attempted_failed_window": cell.attempted_failed_window,
                         "ratio": round(cell.ratio, 4),
+                        "ratio_window": round(cell.ratio_window, 4),
+                        "alert_window_days": ATTEMPTED_FAILED_ALERT_WINDOW_DAYS,
                         "abs_threshold": ATTEMPTED_FAILED_ABS_THRESHOLD,
                         "ratio_threshold": ATTEMPTED_FAILED_RATIO_THRESHOLD,
                         "bucket": target.bucket,
