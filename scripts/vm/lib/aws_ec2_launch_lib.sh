@@ -226,10 +226,14 @@ print(json.dumps([{'ResourceType':'instance','Tags':tags}]))
 # lc_aws_code_bucket <account_id>
 # ---------------------------------------------------------------------------
 # Emit the canonical S3 staging bucket name.
-# Mirrors GCP lc_code_bucket: deployment-scripts-{project} → unified-trading-deployment-scripts-{account}
+# FIXED 2026-08-07 (operator-authorized code fix, AWS-deferred item #7): this used to emit
+# "unified-trading-deployment-scripts-{account}", a bucket that returns 404 -- it was never
+# actually provisioned. `create-code-tarballs.sh` (the actual uploader) has always written to
+# the real, populated bucket `uts-prod-deployment-state` (single, not account-suffixed). Both
+# sides now point at the same bucket.
 lc_aws_code_bucket() {
     local account_id="${1:?lc_aws_code_bucket: account_id required}"
-    echo "unified-trading-deployment-scripts-${account_id}"
+    echo "uts-prod-deployment-state"
 }
 
 # ---------------------------------------------------------------------------
@@ -282,7 +286,7 @@ lc_aws_log_upload_trap_block() {
     local account_id="${2:?lc_aws_log_upload_trap_block: account_id required}"
     local asset_group="${3:-UNKNOWN}"
     local task="${4:-vm-exec}"
-    local code_bucket="unified-trading-deployment-scripts-${account_id}"
+    local code_bucket="uts-prod-deployment-state"
     local region="${AWS_DEFAULT_REGION:-ap-northeast-1}"
     local stream_interval="${LC_LOG_STREAM_INTERVAL:-30}"
     cat <<TRAPSNIPPET
