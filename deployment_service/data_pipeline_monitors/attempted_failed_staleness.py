@@ -27,6 +27,12 @@ import pandas as pd
 # whether/how often DP_RUN_MOSTLY_EMPTY still pages (see module docstring).
 STATIC_BACKLOG_STALE_DAYS_THRESHOLD = 1
 
+# Trailing window used by check_high_attempted_failed to compute the HIGH verdict.
+# Only attempted_failed rows whose attempted_at falls within this many days of now
+# count toward the ABS / ratio thresholds — rows older than this have aged out of
+# the active failure window and no longer contribute to paging.
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14
+
 
 def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> int | None:
     """Whole days between ``max_attempted_at`` (ISO-8601) and ``now`` (default: current
@@ -40,6 +46,26 @@ def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> i
         return None
     moment = now or datetime.now(UTC)
     return max(0, (moment - ts.to_pydatetime()).days)
+
+
+def trailing_window_mask(
+    attempted_at: pd.Series,
+    *,
+    trailing_days: int = ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS,
+    now: datetime | None = None,
+) -> pd.Series:
+    """Boolean mask: True where ``attempted_at`` (ISO-8601 strings) falls within
+    ``trailing_days`` of ``now``, OR where ``attempted_at`` is empty/unparseable.
+
+    Fail-open for NaT/unknown: rows with no recorded timestamp are treated as
+    recent so that legacy rows without ``attempted_at`` still contribute to the
+    HIGH verdict — matching the pre-trailing-window behaviour where every row
+    counted, regardless of timestamp.
+    """
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=trailing_days))
+    return ts.isna() | (ts >= cutoff)
 
 
 def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
