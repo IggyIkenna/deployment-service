@@ -60,6 +60,7 @@
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --dry-run          # plan + dst-check only, no writes
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --only dex_swaps   # one data_type
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --force           # bypass singleton lock
+#   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --allow-stale-fallback  # consolidator paused/behind (safe: filtered read)
 #   bash launch-backfill-defi-legacy-datatype-fold-vm.sh --env staging
 #   ON_DEMAND=true bash launch-backfill-defi-legacy-datatype-fold-vm.sh
 #
@@ -73,6 +74,7 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 MODE="--apply"
 ONLY_ARG=""
+STALE_FALLBACK_PREFIX=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -80,6 +82,15 @@ while [[ $# -gt 0 ]]; do
         --dry-run) MODE=""; shift ;;
         --only) ONLY_ARG="--only $2"; shift 2 ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        # Opt-in escape hatch for ManifestConsolidatorStaleError -- safe here because
+        # this script's own read_availability_index() call always passes filters=
+        # (capture_status + data_type), so the recovery merge is row-group-pushdown
+        # bounded, not the unbounded-decode case the guard defaults to blocking
+        # (see unified_trading_library/manifest_writer/_read_index.py's own comment:
+        # "filters= already bounds decode cost via row-group pushdown"). Needed when
+        # the consolidator is intentionally paused for a long time by an unrelated
+        # migration (this script has no other way to make progress while it's down).
+        --allow-stale-fallback) STALE_FALLBACK_PREFIX="MANIFEST_ALLOW_STALE_FALLBACK=true "; shift ;;
         *) echo "ERROR: unrecognised argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -128,7 +139,7 @@ VM_NAME="${SINGLETON_PREFIX}${RUN_TS}"
 
 SCRIPTS="/home/ikennaigboaka/workspace/mtds/scripts"
 
-BACKFILL_CMD="python ${SCRIPTS}/fold_legacy_dex_pools_swaps_rate_indices_2026_08_04.py ${MODE} --workers 24 ${ONLY_ARG}"
+BACKFILL_CMD="${STALE_FALLBACK_PREFIX}python ${SCRIPTS}/fold_legacy_dex_pools_swaps_rate_indices_2026_08_04.py ${MODE} --workers 24 ${ONLY_ARG}"
 
 METADATA="VM_TASK=backfill-defi-legacy-datatype-fold"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
