@@ -437,6 +437,40 @@ def test_finding_for_worker_stalled_off_by_default_when_flag_omitted():
     assert finding.tier == EscalationTier.PAGE_OPERATOR
 
 
+# ── _finding_for: exit_code=5 expected-universe-v2 halt-safety carve-out ────
+# (DP-VM-001 escalation agt-fe0635, 2026-08-07 — enumerate_expected_universe.py's
+# own documented max-writes-per-run halt-safety trip was pages+relaunch-worker
+# dispatched 10+ times in ~90min while launch-expected-universe-v2-historical-
+# backfill-vm.sh was already correctly retrying the same chunk itself).
+def test_finding_for_expected_universe_halt_safety_routes_file_issue_not_page():
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "expected-universe-v2-sports-20260807-230456", exit_code=5, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(termination, asset_group="sports")
+    assert finding is not None
+    assert finding.tier == EscalationTier.FILE_ISSUE
+    assert finding.severity == "WARN"
+    assert finding.details["halt_safety_retriable"] is True
+    # Slugged by the VM-family prefix, not the ephemeral timestamped vm_name,
+    # so same-day retries of the same chunk dedup into ONE issue doc.
+    assert "expected-universe-v2-sports-20260807-230456" not in finding.summary
+    assert exit_code_fleet_monitor.EXPECTED_UNIVERSE_VM_PREFIX in finding.summary
+
+
+def test_finding_for_exit_code_5_on_other_vm_family_stays_page_operator():
+    # exit_code=5 is NOT a globally-reserved signal — several unrelated one-off
+    # migration scripts also sys.exit(5) for their own reasons, so the carve-out
+    # must be gated on the vm_name prefix too, never a bare exit_code==5 check.
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "backfill-cefi-blank-instruments-20260807-120000", exit_code=5, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(termination, asset_group="cefi")
+    assert finding is not None
+    assert finding.tier == EscalationTier.PAGE_OPERATOR
+    assert finding.severity == "CRITICAL"
+    assert finding.details["halt_safety_retriable"] is False
+
+
 # ── _finding_for: exit_code=137 stall_marker disambiguation
 # (fred_backfill_early_date_indefinite_stall_2026_07_30.md — a stall-induced
 # SIGKILL exits 137 same as a genuine OOM; deployment_id bdd2f745-... had
