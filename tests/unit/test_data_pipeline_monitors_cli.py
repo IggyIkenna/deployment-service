@@ -464,6 +464,12 @@ def test_main_meta_mode_dry_run(monkeypatch):
         "make_consolidator_execution_oom_reader",
         lambda project_id, env_prefix="", location="asia-northeast1": lambda _ags: {},
     )
+    # DP-VM-013 generic Cloud Run Job reader — stub so this test doesn't attempt live RPCs.
+    monkeypatch.setattr(
+        cli.cloud_run_job_failure_watcher,
+        "make_cloud_run_job_execution_reader",
+        lambda project_id, env_prefix="", location="asia-northeast1": lambda _job: None,
+    )
     rc = cli.main(["--mode", "meta", "--dry-run"])
     assert rc == 0
 
