@@ -2599,18 +2599,21 @@ _MD_BUCKET = "market-data-sports-prd-test-project"
 _AVAIL_INDEX = meta_watchers.AVAILABILITY_INDEX_BLOB
 
 
-def _index_parquet(rows: list[tuple[str, str]] | list[tuple[str, str, str]]) -> bytes:
-    """Build a consolidated _index parquet from (data_type, capture_status[, attempted_at]) rows.
+def _index_parquet(
+    rows: list[tuple[str, str]] | list[tuple[str, str, str]] | list[tuple[str, str, str, str]],
+) -> bytes:
+    """Build a consolidated _index parquet from
+    (data_type, capture_status[, attempted_at[, error_reason]]) rows.
 
-    ``attempted_at`` defaults to ``""`` (legacy/unknown) when a row omits it, so every
-    pre-existing 2-tuple call site keeps working unchanged.
+    ``attempted_at``/``error_reason`` default to ``""`` (legacy/unknown/none) when a row
+    omits them, so every pre-existing 2-tuple/3-tuple call site keeps working unchanged.
     """
     import io
 
     import pandas as pd
 
-    padded = [(r[0], r[1], r[2] if len(r) > 2 else "") for r in rows]
-    df = pd.DataFrame(padded, columns=["data_type", "capture_status", "attempted_at"])
+    padded = [(r[0], r[1], r[2] if len(r) > 2 else "", r[3] if len(r) > 3 else "") for r in rows]
+    df = pd.DataFrame(padded, columns=["data_type", "capture_status", "attempted_at", "error_reason"])
     buf = io.BytesIO()
     df.to_parquet(buf, index=False)
     return buf.getvalue()
@@ -2667,6 +2670,47 @@ def test_high_attempted_failed_ratio_guard_ignores_micro_cell(monkeypatch):
     cell = next(c for c in cells if c.data_type == "oi")
     assert cell.ratio == 0.5 and not cell.high
     assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+# ── DP-FETCH-009 superseded_by_* retirement-marker exclusion (operator ruling 2026-08-08,
+# plans/active/issues/defi_onchain_dep_check_blazestake_lstrates_stalls_2026_08_06.md item 4)
+# — a permanent venue-migration/relabel marker must not count toward the alert threshold. ──
+
+
+def test_high_attempted_failed_superseded_by_rows_excluded_does_not_page(monkeypatch):
+    # 1404-style batch of BLAZESTAKE-style retirement markers (capture_status flipped
+    # captured→attempted_failed, error_reason stamped `superseded_by_*`) — well above
+    # ATTEMPTED_FAILED_ABS_THRESHOLD if counted naively, but must be excluded entirely.
+    n_superseded = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 900
+    recent_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reason = "superseded_by_content_verified_canonical_solblaze_solana_relabel_2026_08_06"
+    rows = [("lst_rates", "attempted_failed", recent_ts, reason)] * n_superseded
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="defi")])
+    cell = next(c for c in cells if c.data_type == "lst_rates")
+    assert cell.attempted_failed == 0  # entirely excluded from the threshold-gating count
+    assert not cell.high
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+def test_high_attempted_failed_genuine_rows_still_page_despite_superseded_rows(monkeypatch):
+    # Mixed cell: a large permanent-retirement batch (excluded) PLUS a genuine
+    # attempted_failed batch crossing the abs threshold on its own → must still page.
+    # The fix must not blanket-suppress a cell just because it also carries markers.
+    n_superseded = 2000
+    n_genuine = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    recent_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reason = "superseded_by_content_verified_canonical_solblaze_solana_relabel_2026_08_06"
+    rows = [("lst_rates", "attempted_failed", recent_ts, reason)] * n_superseded
+    rows += [("lst_rates", "attempted_failed", recent_ts, "")] * n_genuine
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="defi")])
+    cell = next(c for c in cells if c.data_type == "lst_rates")
+    assert cell.attempted_failed == n_genuine
+    assert cell.high
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
 
 # ── DP-FETCH-009 known-dead suppression (tradfi_ohlcv_attempted_failed_cluster_2026_07_23.md) ──

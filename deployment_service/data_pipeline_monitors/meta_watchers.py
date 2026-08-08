@@ -233,6 +233,10 @@ ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14  # only count attempted_failed rows w
 # Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
 AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
 
+# Permanent retirement marker (retire/relabel scripts' error_reason) — excluded from the
+# attempted_failed count/ratio below, not a genuine ongoing failure (operator ruling 2026-08-08).
+SUPERSEDED_BY_REASON_PREFIX = "superseded_by_"
+
 
 def _high_attempted_failed_cell_label(asset_group: str, data_type: str) -> str:
     """The per-cell identity label ``<asset_group>/<data_type>``. The finding stamps
@@ -514,7 +518,8 @@ def _read_attempted_failed_cells(
     try:
         # Read ONLY the columns this checker uses (avoids the full-index-materialise OOM
         # that stalled dp-meta-monitor). `attempted_at` feeds the is_known_dead check.
-        index = pd.read_parquet(io.BytesIO(raw), columns=["capture_status", "data_type", "attempted_at"])
+        cols = ["capture_status", "data_type", "attempted_at", "error_reason"]
+        index = pd.read_parquet(io.BytesIO(raw), columns=cols)
     except Exception:
         return []
     if index.empty or "capture_status" not in index.columns or "data_type" not in index.columns:
@@ -530,7 +535,10 @@ def _read_attempted_failed_cells(
     attempted_at_ts = pd.to_datetime(attempted_at_col, utc=True, errors="coerce")
     # NaT (missing/unparseable timestamp) rows are treated as within the window.
     within_window_mask = attempted_at_ts.isna() | (attempted_at_ts >= window_cutoff)
-    windowed_failed_mask = failed_mask & within_window_mask
+    # Permanent superseded_by_* retirement markers excluded from count/ratio below (not a
+    # genuine ongoing failure, operator ruling 2026-08-08) — `error_reason` is in `cols` above.
+    superseded_mask = index["error_reason"].astype(str).str.startswith(SUPERSEDED_BY_REASON_PREFIX)
+    windowed_failed_mask = failed_mask & within_window_mask & ~superseded_mask
 
     cells: list[AttemptedFailedCell] = []
     # Stable order so the alert set + tests are deterministic (no set iteration).
