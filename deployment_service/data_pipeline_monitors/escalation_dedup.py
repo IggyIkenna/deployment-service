@@ -157,7 +157,9 @@ def find_open_issue_for_tuple(
     return None
 
 
-def checkpoint_has_new_activity(fm: dict[str, object], *, max_attempted_at: str) -> bool:
+def checkpoint_has_new_activity(
+    fm: dict[str, object], *, max_attempted_at: str, is_static_backlog: bool = False
+) -> bool:
     """``True`` (never dedup-skip) whenever: ``max_attempted_at`` is empty (can't
     compare, so never guess), the matched doc carries no checkpoint yet
     (nothing to compare against — this reading BOOTSTRAPS one), or
@@ -165,7 +167,29 @@ def checkpoint_has_new_activity(fm: dict[str, object], *, max_attempted_at: str)
     new ``attempted_failed`` row landed since the last verified reading).
     ISO-8601 UTC timestamp strings compare lexicographically == chronologically,
     so no datetime parsing is needed.
+
+    ``is_static_backlog`` (the SAME flag ``meta_watchers.check_high_attempted_failed``
+    stamps via ``attempted_failed_staleness.stale_backlog_annotation`` — see that
+    module's docstring) overrides the raw timestamp compare to ``False`` (no
+    dedup-worthy new activity) when ``True``. Without this override, a cell with a
+    small but nonzero DAILY trickle below the materiality floor (e.g. the
+    ``(cefi, book_snapshot_5)`` condition documented across 20+ escalation-worker
+    dispatches in
+    ``plans/archive/issues/dp_escalation_worker_dispatch_no_open_issue_check_2026_07_29.md``'s
+    corroborating Progress Log entries and
+    ``plans/active/issues/cefi_book_snapshot5_schema_contract_ts_event_levels_mismatch_2026_07_28.md``)
+    NEVER dedup-skips: ``max_attempted_at`` advances by a few rows every day
+    forever, so the raw compare reads "genuinely new activity" on every single
+    re-page even though the alert's own classification has already established
+    that volume is noise, not a regression. ``is_static_backlog`` is exactly the
+    same materiality judgment the alerting-service severity downgrade
+    (``dp_run_mostly_empty_static_backlog.effective_severity``) already applies to
+    Pager/Telegram routing — this mirrors it at the escalation-dispatch dedup
+    layer so a materiality-floor trickle stops forcing a full worker spawn too, not
+    just a downgraded page.
     """
+    if is_static_backlog:
+        return False
     if not max_attempted_at:
         return True
     checkpoint = fm.get(DEDUP_CHECKPOINT_FIELD)
@@ -242,6 +266,7 @@ def check_dispatch_dedup(
     registry_id: str,
     max_attempted_at: str,
     event: str,
+    is_static_backlog: bool = False,
 ) -> dict[str, object] | None:
     """Option A dedup — see the module docstring above.
 
@@ -252,6 +277,15 @@ def check_dispatch_dedup(
     found and evaluated. Never raises: dedup is a pure OPTIMIZATION, so any
     internal failure here falls through to the original behaviour (the caller
     treats ``None`` the same as "no dedup applicable").
+
+    ``is_static_backlog`` (forwarded to :func:`checkpoint_has_new_activity` —
+    see its docstring): when the finding's own materiality classification
+    already says this cell's recent volume is backlog noise, skip regardless of
+    whether ``max_attempted_at`` itself ticked forward. Closes the residual gap
+    where a decaying-but-nonzero daily trickle defeated the raw timestamp
+    compare and kept forcing a full worker dispatch on every re-page (confirmed
+    live: 20+ dispatches for one condition,
+    ``plans/active/issues/cefi_book_snapshot5_schema_contract_ts_event_levels_mismatch_2026_07_28.md``).
     """
     try:
         match = find_open_issue_for_tuple(
@@ -260,15 +294,22 @@ def check_dispatch_dedup(
         if match is None:
             return None
         issue_path, issue_fm = match
-        has_new_activity = checkpoint_has_new_activity(issue_fm, max_attempted_at=max_attempted_at)
+        has_new_activity = checkpoint_has_new_activity(
+            issue_fm, max_attempted_at=max_attempted_at, is_static_backlog=is_static_backlog
+        )
         upsert_checkpoint(issue_path, max_attempted_at=max_attempted_at)
         if has_new_activity:
             return {"skipped": False, "issue_path": str(issue_path), "reason": "new_activity_or_no_checkpoint"}
+        reason = (
+            f"is classified STATIC BACKLOG (recent volume below the materiality floor, even though "
+            f"max_attempted_at={max_attempted_at or 'n/a'} may have moved)"
+            if is_static_backlog
+            else f"has no new activity (max_attempted_at={max_attempted_at or 'n/a'}) since the last verified checkpoint"
+        )
         append_progress_log_entry(
             issue_path,
             f"Escalation-dispatch DEDUP SKIP — `{event}` ({registry_id or 'n/a'}) re-fired for this exact tuple "
-            f"with no new activity (max_attempted_at={max_attempted_at or 'n/a'}) since the last verified "
-            "checkpoint on this OPEN issue doc. Per "
+            f"and {reason} on this OPEN issue doc. Per "
             "`/plans/active/issues/dp_escalation_worker_dispatch_no_open_issue_check_2026_07_29.md` Option A, the "
             "fresh `data_pipeline_failure` orchestrator-agent dispatch was SKIPPED (no new work to find) — only "
             "this automated checkpoint verification ran, no worker session spawned.",
@@ -280,11 +321,13 @@ def check_dispatch_dedup(
 
 
 def check_dispatch_dedup_for_finding(finding: _FindingLike, *, pm_root: Path) -> dict[str, object] | None:
-    """Thin adapter: pull the ``(asset_group, data_type, max_attempted_at)``
-    shape out of an ``escalation.PipelineFinding``-like object and hand it to
-    :func:`check_dispatch_dedup`. ``None`` when the finding doesn't carry
-    that detail shape (today, only DP-FETCH-009 / ``DP_RUN_MOSTLY_EMPTY``
-    does — see ``meta_watchers.check_high_attempted_failed``'s ``details=``)."""
+    """Thin adapter: pull the ``(asset_group, data_type, max_attempted_at,
+    is_static_backlog)`` shape out of an ``escalation.PipelineFinding``-like
+    object and hand it to :func:`check_dispatch_dedup`. ``None`` when the
+    finding doesn't carry that detail shape (today, only DP-FETCH-009 /
+    ``DP_RUN_MOSTLY_EMPTY`` does — see ``meta_watchers.check_high_attempted_failed``'s
+    ``details=``, which always stamps ``is_static_backlog`` alongside
+    ``max_attempted_at``)."""
     asset_group = str(finding.details.get("asset_group_name", "")).strip()
     data_type = str(finding.details.get("data_type", "")).strip()
     if not asset_group or not data_type:
@@ -296,4 +339,5 @@ def check_dispatch_dedup_for_finding(finding: _FindingLike, *, pm_root: Path) ->
         registry_id=finding.registry_id or "",
         max_attempted_at=str(finding.details.get("max_attempted_at", "")).strip(),
         event=finding.event,
+        is_static_backlog=bool(finding.details.get("is_static_backlog", False)),
     )
