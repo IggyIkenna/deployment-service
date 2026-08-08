@@ -2009,7 +2009,16 @@ _launch() {
         # migrate_cefi_tardis_filename_canonical_2026_07_17.py's build_plan logs
         # "Discovery progress: day=%s cumulative_objects=%d elapsed=%.1fs" once per day iterated;
         # this doc's own top-of-file usage comment already measured ~65-90s/day for this category.
-        md="${md},STALL_PROGRESS_REGEX=Discovery progress: day="
+        # STALL FIX (2026-08-08, cefi_chain_drop_root_cause_and_heavy_io_vm_rule_2026_07_24.md
+        # resume): discovery-only coverage left the LATER per-group collision-resolution phase
+        # (_resolve_group_collisions, which can synchronously download+compare full parquet
+        # objects per pre-existing-target collision via _confirm_would_patch_duplicate) with NO
+        # progress marker at all -- a venue with many such collisions (confirmed live:
+        # LIGHTER-ZKSYNC, killed at exit 137 WORKER_STALLED after 30min genuinely-alive CPU/network
+        # activity, zero mutation) never resets the stall timer once discovery finishes. Added
+        # "Plan-build progress: group=N/M" (mtds@<pending>, every 100 groups) to build_plan's own
+        # per-group loop -- included below alongside the discovery marker.
+        md="${md},STALL_PROGRESS_REGEX=Discovery progress: day=|Plan-build progress: group="
     elif [[ "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" ]]; then
         # Both relabel_solana_dex_pools_fake_history.py and
         # relabel_kamino_solend_lending_fabrication_2026_07_29.py log "%s -> %s" (blob.name, status)
