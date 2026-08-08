@@ -116,27 +116,16 @@ METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 # plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
 METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 
-if [[ "${DRY_RUN:-false}" == "true" ]]; then
-  echo "[DRY-RUN] Would create VM: "$VM_NAME""
-  echo "[DRY-RUN] (gcloud compute instances create skipped)"
-else
-  if [[ "${DRY_RUN:-false}" != "true" ]]; then
-      lc_verify_tarball_freshness "$CODE_BUCKET" \
-          instruments-service unified-api-contracts unified-trading-library deployment-service \
-          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
-  fi
-
-  gcloud compute instances create "$VM_NAME" \
-    --project="$PROJECT" \
-    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
-    --zone="$ZONE" \
-    --machine-type=e2-small \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=footystats-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        instruments-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
+[[ "${DRY_RUN:-false}" == "true" ]] && export LC_DRY_RUN=true
+lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "e2-small" "10" \
+    "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    "purpose=footystats-forward-poll,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
+    "$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")"
 
 echo ""
 echo "VM launched: $VM_NAME"
