@@ -43,6 +43,9 @@
 # `c2-standard-32` is NOT in this zone (use 30) — verified 2026-05-12 via
 # `gcloud compute machine-types list --zones=asia-northeast1-c --filter='name~^c2-standard'`.
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -61,15 +64,9 @@ DATE_START="2024-01-01"
 DATE_END="2024-01-07"
 MODE="stub"
 ROW_COUNT_SCALE="1.0"
-# SA: default to the Compute Engine default SA (matches running watchdog +
-# every other actively-deployed VM in this project — see `gcloud compute
-# instances list --format='value(serviceAccounts.email)'`). The historical
-# `data-pipeline-vm@${PROJECT}.iam.gserviceaccount.com` SA referenced in some
-# launchers does not exist in this project (verified 2026-05-12 — every
-# `gcloud iam service-accounts list` enumeration; absence is the cause of
-# the `serviceAccount of type was not found` failure mode). Override via
-# `SERVICE_ACCOUNT=foo@... bash launch-synthetic-benchmark-vm.sh` if needed.
-SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
+# SA: tier SA per hybrid-C ruling (bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md P3.2).
+# Override via `SERVICE_ACCOUNT=foo@... bash launch-synthetic-benchmark-vm.sh` if needed.
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT}")}"
 # Opt-in override for the deployment-registry Firestore dual-write flag
 # (deployment_registry_firestore_p0_unblock_2026_07_14.md, Link 2 wired the
 # metadata->env plumbing in setup-data-pipeline-vm.sh; nothing sets it true

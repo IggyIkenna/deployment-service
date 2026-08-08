@@ -23,6 +23,9 @@
 #   bash scripts/vm/launch-tier3-cefi-backfill.sh --dry-run --market-tick
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 DRY_RUN=false
 DO_INSTRUMENTS=true
