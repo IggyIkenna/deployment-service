@@ -595,12 +595,6 @@ resource "google_service_account" "unified_trading" {
   project      = var.project_id
 }
 
-resource "google_project_iam_member" "unified_trading_storage_admin" {
-  project = var.project_id
-  role    = "roles/storage.objectAdmin"
-  member  = "serviceAccount:${google_service_account.unified_trading.email}"
-}
-
 resource "google_project_iam_member" "unified_trading_bq_editor" {
   project = var.project_id
   role    = "roles/bigquery.dataEditor"

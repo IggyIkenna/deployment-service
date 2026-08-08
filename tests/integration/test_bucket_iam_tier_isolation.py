@@ -122,20 +122,13 @@ class TestTestSaTierIsolation:
 
 
 class TestMigrationSaCurrentState:
-    """uts-migration-sa: designated the sanctioned cross-tier write exception
-    (bucket_iam_write_protection_per_tier_2026_06_09.md's own "Open design decisions"),
-    but as of 2026-08-02 it holds ONLY roles/storage.objectViewer project-wide -- ZERO
-    write grant anywhere (confirmed live + in bucket_iam_per_tier_sa.tf; tracked as an
-    open, [OPERATOR]-gated grant-scope decision in P2.2f of the parent plan).
-
-    This test asserts CURRENT REALITY (denied), not the plan's eventual target
-    ("migration SA -> allowed") -- asserting "allowed" today would be a false
-    positive, since the grant simply doesn't exist yet. Flip this assertion to
-    True once P2.2f's grant lands and is live-verified; until then, the intended
-    positive case is this test's own honest negative."""
+    """uts-migration-sa: the sanctioned cross-tier write exception
+    (bucket_iam_write_protection_per_tier_2026_06_09.md's own "Open design decisions").
+    P2.2f DONE 2026-08-03: uts-migration-sa now holds roles/storage.objectAdmin
+    project-wide (unconditioned -- generic cross-family tool, see bucket_iam_per_tier_sa.tf
+    uts_migration_objectadmin comment for why a CEL condition is not achievable here).
+    This test confirms the grant is live (positive case -- migration SA CAN write prd)."""
 
     @pytest.mark.integration
-    def test_migration_sa_cannot_write_prd_bucket_yet(self):
-        # NOTE: expected to flip to True once plans/active/bucket_iam_write_protection_per_tier_2026_06_09.md
-        # P2.2f's migration-SA write grant is ruled + applied + live-verified.
-        assert _can_write(TIER_SA_EMAILS["migration"], PRD_BUCKET) is False
+    def test_migration_sa_can_write_prd_bucket(self):
+        assert _can_write(TIER_SA_EMAILS["migration"], PRD_BUCKET) is True
