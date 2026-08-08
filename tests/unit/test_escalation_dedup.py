@@ -67,6 +67,7 @@ def _finding(
     data_type: str = "derivative_ticker",
     max_attempted_at: str = "2026-07-29T09:03:12Z",
     registry_id: str = "DP-FETCH-009",
+    is_static_backlog: bool = False,
 ) -> PipelineFinding:
     return PipelineFinding(
         event="DP_RUN_MOSTLY_EMPTY",
@@ -80,6 +81,7 @@ def _finding(
             "captured": 1000,
             "attempted_failed": 200,
             "max_attempted_at": max_attempted_at,
+            "is_static_backlog": is_static_backlog,
         },
         registry_id=registry_id,
     )
@@ -167,6 +169,33 @@ def test_checkpoint_has_new_activity_true_when_newer():
 def test_checkpoint_has_new_activity_true_when_max_attempted_at_missing():
     fm = {"dp_escalation_checkpoint": {"max_attempted_at": "2026-07-29T09:03:12Z"}}
     assert escalation_dedup.checkpoint_has_new_activity(fm, max_attempted_at="") is True
+
+
+def test_checkpoint_has_new_activity_false_when_static_backlog_even_if_timestamp_moved():
+    """The materiality-floor case: a small decaying trickle keeps advancing
+    max_attempted_at every day, but the finding's own is_static_backlog=True
+    classification means it is NOT dedup-worthy new activity."""
+    fm = {
+        "dp_escalation_checkpoint": {"max_attempted_at": "2026-07-29T09:03:12Z", "checked_at": "2026-07-30T00:00:00Z"}
+    }
+    assert (
+        escalation_dedup.checkpoint_has_new_activity(
+            fm, max_attempted_at="2026-08-08T06:00:00Z", is_static_backlog=True
+        )
+        is False
+    )
+
+
+def test_checkpoint_has_new_activity_false_when_static_backlog_with_no_checkpoint_yet():
+    """is_static_backlog short-circuits even a bootstrap (no prior checkpoint) —
+    an OPEN issue doc already covers this tuple, and the alert's own
+    classification already says the current reading isn't materially new."""
+    assert (
+        escalation_dedup.checkpoint_has_new_activity(
+            {}, max_attempted_at="2026-08-08T06:00:00Z", is_static_backlog=True
+        )
+        is False
+    )
 
 
 def test_upsert_checkpoint_bootstraps_and_preserves_other_frontmatter(tmp_path: Path):
@@ -322,6 +351,39 @@ def test_route_finding_dispatches_when_genuinely_new_activity_since_checkpoint(t
     fm = escalation_dedup.parse_frontmatter(doc.read_text(encoding="utf-8"))
     assert fm is not None
     assert fm["dp_escalation_checkpoint"]["max_attempted_at"] == "2026-07-30T12:00:00Z"
+
+
+def test_route_finding_skips_dispatch_for_static_backlog_trickle_despite_moved_timestamp(tmp_path: Path, monkeypatch):
+    """Closes the residual gap the raw timestamp compare left open: a small
+    decaying trickle (e.g. the (cefi, book_snapshot_5) condition documented
+    across 20+ escalation-worker dispatches) keeps advancing max_attempted_at
+    by a few rows every day, which used to read as "genuinely new activity"
+    forever and force a full worker dispatch on every re-page even though the
+    alert's own materiality classification already labels it STATIC BACKLOG."""
+    emitted, dispatched = _patch_route_finding(monkeypatch)
+    pm = tmp_path / "unified-trading-pm"
+    issues_dir = pm / "plans" / "active" / "issues"
+    issues_dir.mkdir(parents=True)
+    doc = issues_dir / "cefi_book_snapshot_5_2026_07_28.md"
+    doc.write_text(_issue_doc_text(data_type="book_snapshot_5"), encoding="utf-8")
+    escalation_dedup.upsert_checkpoint(doc, max_attempted_at="2026-08-07T04:18:05Z")
+
+    result = escalation.route_finding(
+        _finding(data_type="book_snapshot_5", max_attempted_at="2026-08-08T06:00:00Z", is_static_backlog=True),
+        pm_repo_path=str(pm),
+    )
+
+    assert dispatched == []  # the fast-spawn worker was NEVER invoked
+    assert result["dispatch"]["dispatched"] is False
+    assert result["escalation_dedup"]["skipped"] is True
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+    text = doc.read_text(encoding="utf-8")
+    assert "STATIC BACKLOG" in text
+    # The checkpoint still advances so a later genuinely-fresh reading has a
+    # correct baseline to compare against.
+    fm = escalation_dedup.parse_frontmatter(text)
+    assert fm is not None
+    assert fm["dp_escalation_checkpoint"]["max_attempted_at"] == "2026-08-08T06:00:00Z"
 
 
 def test_route_finding_dedup_inapplicable_for_findings_without_the_tuple_shape(tmp_path: Path, monkeypatch):
