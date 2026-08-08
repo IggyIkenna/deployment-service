@@ -1,0 +1,1840 @@
+# ==============================================================================
+# Unified Trading Codex - CANONICAL Production Readiness Checklist (v3.0, reconciled)
+# ==============================================================================
+#
+# THIS IS THE CANONICAL PRODUCTION-READINESS CHECKLIST. Per operator ruling 2026-08-08,
+# this file supersedes BOTH prior templates:
+#   - unified-trading-pm/codex/10-audit/_checklist-template.yaml (v1.0, 110 items)
+#   - unified-trading-pm/codex/10-audit/_checklist-template-enhanced.yaml (v2.0 "enhanced", 26 items)
+#
+# Reconciliation method: diffed both templates by item `id`. 24 ids appeared in BOTH
+# (identical id, near-identical title) -- for those, the v2.0 body was kept (it carries
+# newer wording plus `section`/`criticality`/`automation_status`/`validator_id`/`ssot_ref`/
+# `automated_check` fields the v1.0 body lacks). The 86 ids unique to v1.0 were kept as-is
+# (with a `unified-trading-services` -> `unified-trading-library` rename applied to the 5
+# items that still carried the retired repo name). The 2 ids unique to v2.0 (BASE-19,
+# BASE-22) were added verbatim. Result: 86 + 24 + 2 = 112 items total.
+#
+# This file's PATH (deployment-service/configs/checklist.template.yaml) was already what 5
+# other docs across unified-trading-pm and deployment-service cited as THE checklist before
+# this reconciliation -- it did not previously exist on disk. Three different stale item
+# counts (51 / 52 / 37) had accumulated in codex/06-coding-standards/README.md, all tracing
+# back to a since-deleted ancestor of this same path (52 items / 7 phases); all three are
+# corrected to 112 as part of this same change.
+#
+# Both source templates are RETAINED at their original codex/10-audit/ paths (marked
+# "preserved for reference" already) with a header pointer added to this file -- they are
+# not deleted, but they are no longer the citation target for new work.
+#
+# SEPARATE, live per-repo system -- NOT superseded by this file: codex/10-audit/README.md's
+# v3.0 CR/DR/BR (Code/Deployment/Business Readiness) per-repo readiness model
+# (REPO_READINESS_CHECKLIST.yaml + codex/10-audit/repos/*.yaml, 65 populated repo files)
+# already reconciled the v2.0 "enhanced" file's content into its own `code_audit_items`
+# cross-reference in March 2026 -- per codex/10-audit/consolidation-gap-analysis.md: "Net
+# gap: Zero items from v2.0 are uncovered by the v3.0 CR/DR/BR model." This file's role is
+# the STANDALONE checklist-item reference the 5 legacy citing docs already expected at this
+# exact path -- it is not a competing live tracker. Fully reconciling the two systems (so a
+# per-repo audit and this generic template never drift) is flagged as separate follow-up
+# work, out of scope for this reconciliation.
+#
+# 2026-08-08 status-correction pass: of the 9 items tagged [PLANNED] in the v1.0 source,
+# all 9 were re-checked against current codex SSOTs for real live-infra backing. 4 flipped
+# to [LIVE] (ANL-02, WRK-02, WRK-03, OBS-14), 5 flipped to [PARTIALLY LIVE] with an honest
+# caveat (WRK-04, WRK-05, SEC-07, ANL-03, ANL-04) -- each carries a `ssot_ref` citing the
+# doc that proves it. No new item ids were authored in this pass.
+#
+# Copy this file to checklist.{service}.yaml and assess each item.
+#
+# Status values:
+#   pass          - Item fully satisfied; evidence confirms compliance
+#   fail          - Item not satisfied; remediation required
+#   partial       - Partially satisfied; some aspects need work
+#   not_assessed  - Not yet evaluated
+#   na            - Not applicable to this service (document reason in notes)
+#
+# Priority levels:
+#   P0 - Critical: blocks production deployment
+#   P1 - High: must fix before live trading
+#   P2 - Medium: technical debt; fix when capacity allows
+#   P3 - Low: best-practice polish
+#
+# Mode:
+#   batch - Applies only to batch/pipeline services
+#   live  - Applies only to live trading services
+#   both  - Applies to all services
+#
+# Enhanced fields (carried from v2.0, present on the 24 items merged from that template):
+#   validator_id      - Which validator script checks this item
+#   ssot_ref          - Which codex document/config is the single source of truth
+#   automation_status - manual, semi-automated, automated
+#   criticality       - critical, high, medium, low
+#
+# Cross-references:
+#   - Superseded templates:  unified-trading-pm/codex/10-audit/_checklist-template.yaml (v1.0)
+#                            unified-trading-pm/codex/10-audit/_checklist-template-enhanced.yaml (v2.0)
+#   - Per-repo readiness:    unified-trading-pm/codex/10-audit/README.md (CR/DR/BR v3.0 model)
+#   - Codex principles:      unified-trading-pm/codex/01-domain through 09-analysis
+#
+# ==============================================================================
+
+service_name: "{SERVICE_NAME}"
+last_updated: "YYYY-MM-DD"
+auditor: ""
+
+items:
+  - id: "DOM-01"
+    area: "01-domain"
+    title: "Signal-based architecture"
+    description:
+      "Strategy emits signals (direction, venue, symbol, size); does not handle execution directly. Signals are the
+      boundary between strategy and execution."
+    applies_to: "strategy-service, execution-service"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "DOM-02"
+    area: "01-domain"
+    title: "Asset class taxonomy complete"
+    description:
+      "Service correctly categorizes instruments using the defined asset class taxonomy (TRADFI, CEFI, DEFI, SPORTS). No
+      ad-hoc category strings."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "DOM-03"
+    area: "01-domain"
+    title: "Instrument lifecycle handling"
+    description:
+      "Service handles instrument expiry, settlement, and roll-over correctly. Expired instruments are not processed;
+      roll dates are respected."
+    applies_to: "instruments-service, strategy-service, execution-service"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "DOM-04"
+    area: "01-domain"
+    title: "Client model implemented"
+    description:
+      "Multi-client isolation enforced. Client-specific data separated; shared reference data (instruments, market data)
+      accessible to all clients."
+    applies_to: "strategy-service, execution-service, ml-inference-service"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "DOM-05"
+    area: "01-domain"
+    title: "Position management in strategy"
+    description:
+      "Strategy tracks position state correctly. Positions reflect fills, not just signals. No phantom positions from
+      unfilled orders."
+    applies_to: "strategy-service, execution-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+
+  - id: "DOM-06"
+    area: "01-domain"
+    title: "Strategy abstraction boundary"
+    description:
+      "Strategy code contains only signal logic. No direct API calls to exchanges, no order management, no connection
+      handling. Execution is delegated."
+    applies_to: "strategy-service"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "DOM-07"
+    area: "01-domain"
+    title: "Venue mapping completeness"
+    description:
+      "All venues the service operates on are mapped via VenueMapping from unified-trading-library. No ad-hoc venue
+      string comparisons."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "DOM-08"
+    area: "01-domain"
+    title: "Domain model consistency"
+    description:
+      "Domain objects (Instrument, Signal, Position, Order) use shared definitions from unified-trading-library or
+      codex. No service-local redefinitions of core types."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  # ===========================================================================
+  # 02-DATA (DAT): Data Governance, Schemas, Storage
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/02-data/
+  # Carries forward: items 20, 22, 22b, 22c, 25, 25b, 29, 30, 34, 35, 36, 37
+  # ===========================================================================
+
+  # --- DAT: Data Validation and Quality ---
+
+  - id: "DAT-01"
+    area: "02-data"
+    section: "schema-validation"
+    title: "Schema-first design"
+    description: |
+      Output schemas are defined in schemas/output_schemas.py before data is produced.
+      Schema is the contract; code conforms to schema, not the other way around.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "semi-automated"
+    validator_id: "schema_first_validator"
+    ssot_ref: "02-data/schema-governance.md"
+    automated_check: "validators/data_pipeline/schema_first_validator.py"
+
+  - id: "DAT-02"
+    area: "02-data"
+    section: "schema-validation"
+    title: "Pre-upload schema validation"
+    description: |
+      GCS outputs validated against strict schema (ParquetSchemaEnforcer) before upload.
+      NaN in non-nullable columns logged as ERROR; invalid files skipped.
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "output_validation_validator"
+    ssot_ref: "02-data/schema-governance.md"
+    automated_check: "validators/data_pipeline/output_validation_validator.py"
+
+  - id: "DAT-03"
+    area: "02-data"
+    section: "schema-validation"
+    title: "Timestamp-date alignment validation"
+    description: |
+      Data timestamps validated against expected folder date before upload via validate_timestamp_date_alignment().
+      Misaligned data skipped.
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "timestamp_alignment_validator"
+    ssot_ref: "02-data/schema-governance.md"
+    automated_check: "validators/data_pipeline/timestamp_alignment_validator.py"
+
+  - id: "DAT-04"
+    area: "02-data"
+    title: "NaN handling in non-nullable columns"
+    description:
+      "Non-nullable columns (as defined in schema) never contain NaN/None values. Validation catches NaN before upload;
+      rows are dropped or flagged, never silently written."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "DAT-05"
+    area: "02-data"
+    title: "Dependency data checking"
+    description:
+      "Service validates upstream data exists before processing. Uses check-deps CLI or DependencyChecker. Does not
+      produce NaN-filled outputs on missing upstream data."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_20 from original checklist."
+    priority: "P1"
+
+  - id: "DAT-06"
+    area: "02-data"
+    title: "Local output correctness"
+    description:
+      "Output files match expected schema and dimensions. Columns, data types, and path templates match
+      dependencies.yaml. No unexpected NaN columns."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_22 from original checklist."
+    priority: "P1"
+
+  # --- DAT: Storage Conventions ---
+
+  - id: "DAT-07"
+    area: "02-data"
+    title: "All I/O through unified-trading-library"
+    description:
+      "All storage reads and writes go through unified-trading-library abstractions (get_storage_client, domain
+      clients). No direct google.cloud.storage or boto3 in business code."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Related to INF-05 (cloud-agnostic design) but focused on data I/O path."
+    priority: "P1"
+
+  - id: "DAT-08"
+    area: "02-data"
+    title: "Partitioning conventions followed"
+    description:
+      "GCS output paths follow the partitioning conventions defined in 02-data/partitioning.md. Date-partitioned data
+      uses YYYY-MM-DD folders. Shard dimensions map to directory levels."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "DAT-09"
+    area: "02-data"
+    title: "Bucket naming conventions followed (operator decision (b+) 2026-05-11)"
+    description:
+      'Bucket names follow the naming conventions in cloud-providers.yaml. No ad-hoc bucket names in code; bucket names
+      sourced from config via resolve_bucket_name(cloud=..., kind=..., asset_group=..., env=...). Per operator decision
+      (b+) 2026-05-11 (plans/active/bucket_name_ssot_canonicalisation_2026_05_10.md Phase 0a): yaml''s env-tier
+      convention extends to ALL buckets (Group-A instruments-store + market-data + raw-tick AND Group-B
+      features-*/ml-*/strategy/ execution) across both clouds × 3 envs (staging/prod/development). Audit verifies: (1)
+      every reader/writer hits env-tiered bucket names not flat; (2) VM launchers read DEPLOYMENT_ENV; (3) sync script
+      (prod -> staging/dev with truncated date window) shipped + scheduled; (4) same-region enforced (no cross-region
+      egress within-cloud); (5) QG STEP 5.69 ratchet for inline f"gs://..." formatters green.'
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+
+  - id: "DAT-10"
+    area: "02-data"
+    title: "Domain clients used for data access"
+    description:
+      "Services use domain-level clients (e.g., InstrumentsClient, MarketDataClient) from unified-trading-library for
+      reading upstream data, not raw GCS blob access."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "DAT-11"
+    area: "02-data"
+    title: "GCS paths documented"
+    description: "docs/GCS_PATHS.md documents input/output storage structure with path templates and partitioning strategy."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_30 from original checklist."
+    priority: "P3"
+
+  - id: "DAT-12"
+    area: "02-data"
+    title: "Schema validation documented"
+    description: "docs/SCHEMA_VALIDATION.md defines all output schemas with column types, nullable flags, and usage examples."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_29 from original checklist. Applies if service outputs parquet to GCS."
+    priority: "P3"
+
+  # --- DAT: Data Catalogue and Completeness ---
+
+  - id: "DAT-13"
+    area: "02-data"
+    title: "Data catalogue entry exists"
+    description:
+      "configs/data-catalogue.{service}.yaml enumerates all shard combinations with instrument_type/data_type where
+      applicable. Start dates match expected_start_dates.yaml."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_34 from original checklist."
+    priority: "P2"
+
+  - id: "DAT-14"
+    area: "02-data"
+    title: "Stage 1 deployment run complete"
+    description:
+      "At least one deployment has produced data for each shard dimension. Every venue/data_type/feature_group has at
+      least 1 day of data."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_35 from original checklist."
+    priority: "P2"
+
+  - id: "DAT-15"
+    area: "02-data"
+    title: "Stage 2 data completeness"
+    description:
+      "All required dates populated. data-status shows >95% for all dimensions. Missing dates are only genuine gaps
+      (holidays, pre-launch)."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_36 from original checklist."
+    priority: "P2"
+
+  - id: "DAT-16"
+    area: "02-data"
+    title: "Data completeness verified"
+    description: "data-status shows expected completion percentages. Missing data is genuinely missing, not a processing failure."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_25 from original checklist."
+    priority: "P1"
+
+  - id: "DAT-17"
+    area: "02-data"
+    title: "Data status granularity"
+    description:
+      "data-status supports service-specific breakdown options matching sharding dimensions (--check-venues,
+      --check-feature-groups, etc.)."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_25b. Applies if service has sub-date sharding dimensions."
+    priority: "P3"
+
+  - id: "DAT-18"
+    area: "02-data"
+    title: "Pipeline dependency chain verified"
+    description:
+      "Upstream data exists before downstream processing. instruments-service before market-tick-data-service; processed
+      candles before features services; all features before ml-training."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_37 from original checklist."
+    priority: "P1"
+
+  # ===========================================================================
+  # 03-OBSERVABILITY (OBS): Lifecycle Events, Logging, Monitoring
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/03-observability/
+  # Carries forward: items 04, 04c, 04d, 04e, 04g, 04h, 21
+  # ===========================================================================
+
+  # --- OBS: Logging Setup ---
+
+  - id: "OBS-01"
+    area: "03-observability"
+    section: "logging"
+    title: "Standardized logging via setup_cloud_logging()"
+    description: |
+      Uses setup_cloud_logging() from unified-trading-library. JSON format enabled.
+      Third-party loggers suppressed to WARNING.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "semi-automated"
+    validator_id: "logging_setup_validator"
+    ssot_ref: "03-observability/README.md"
+    automated_check: "validators/data_pipeline/logging_setup_validator.py"
+
+  - id: "OBS-02"
+    area: "03-observability"
+    title: "Multi-cloud logging"
+    description:
+      "Logging works on GCP (Cloud Run/VM) and AWS (ECS/Lambda). Uses CloudRunJSONFormatter for GCP; structured JSON for
+      AWS CloudWatch."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_04c from original checklist."
+    priority: "P2"
+
+  - id: "OBS-03"
+    area: "03-observability"
+    title: "Resource monitoring enabled"
+    description:
+      "setup_cloud_logging(enable_resource_monitoring=True) called. CPU/memory/disk metrics logged every 30s.
+      High-memory warnings at >85%, critical at >90%."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_04d from original checklist."
+    priority: "P1"
+
+  - id: "OBS-04"
+    area: "03-observability"
+    title: "Graceful shutdown handler"
+    description:
+      "SIGTERM/SIGINT handlers installed via GracefulShutdownHandler. Final resource state logged on shutdown. Logs
+      flushed before exit."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_04e from original checklist."
+    priority: "P1"
+
+  # --- OBS: Lifecycle Events ---
+
+  - id: "OBS-05"
+    area: "03-observability"
+    section: "lifecycle-events"
+    title: "All 11 lifecycle events implemented"
+    description: |
+      Service emits all required lifecycle events via log_event(): STARTED, VALIDATION_STARTED, VALIDATION_COMPLETED,
+      DATA_INGESTION_STARTED, DATA_INGESTION_COMPLETED, PROCESSING_STARTED, PROCESSING_COMPLETED, UPLOAD_STARTED,
+      UPLOAD_COMPLETED, STOPPED, FAILED.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "lifecycle_events_validator"
+    ssot_ref: "03-observability/lifecycle-events.md"
+    automated_check: "validators/data_pipeline/lifecycle_events_validator.py"
+
+  - id: "OBS-06"
+    area: "03-observability"
+    section: "lifecycle-events"
+    title: "test_event_logging.py exists and passes"
+    description: |
+      tests/unit/test_event_logging.py verifies all required lifecycle events are emitted.
+      Test must not be skipped or disabled.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "event_logging_test_validator"
+    ssot_ref: "03-observability/lifecycle-events.md"
+    automated_check: "validators/data_pipeline/event_logging_test_validator.py"
+
+  - id: "OBS-07"
+    area: "03-observability"
+    title: "log_event() used exclusively"
+    description:
+      "Lifecycle events emitted via log_event() from unified_trading_library.observability. No custom logging patterns
+      for lifecycle tracking."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "OBS-08"
+    area: "03-observability"
+    title: "Domain-specific events implemented"
+    description:
+      "Service-specific events (e.g., DATE_PROCESSING_STARTED, INSTRUMENT_PROCESSING_STARTED) emitted per the
+      standardized event logging spec."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "OBS-09"
+    area: "03-observability"
+    title: "Progress counters in processing loops"
+    description:
+      "Processing loops emit progress events with counters: log_event('ITEM_PROCESSING_STARTED', f'{item}
+      ({idx}/{total})')."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "OBS-10"
+    area: "03-observability"
+    title: "Strict exit codes"
+    description:
+      "CLI exits non-zero on ANY failure. sys.exit(0) only on explicit success. No default-to-success patterns like
+      result.get('success', True)."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_04g from original checklist."
+    priority: "P0"
+
+  - id: "OBS-11"
+    area: "03-observability"
+    title: "Only genuine warnings"
+    description:
+      "No spurious ERROR logs during normal operation. Expected gaps (holidays, auctions) logged at WARNING. Genuine
+      errors at ERROR."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_21 from original checklist."
+    priority: "P2"
+
+  # --- OBS: Batch-Specific Monitoring ---
+
+  - id: "OBS-12"
+    area: "03-observability"
+    title: "OOM detection configured [batch only]"
+    description:
+      "Batch jobs have memory limits set and resource monitoring detects approaching OOM (>90% memory). Exit code or log
+      indicates OOM vs other failures."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "OBS-13"
+    area: "03-observability"
+    title: "Startup timeout configured [batch only]"
+    description:
+      "Batch jobs have a startup timeout. If the service does not emit STARTED within the timeout window, it is killed
+      and restarted."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P3"
+
+  # --- OBS: Live-Specific Monitoring ---
+
+  - id: "OBS-14"
+    area: "03-observability"
+    title: "Alerting configured [live only] [LIVE]"
+    description:
+      "Live services have alerting rules for: connection loss, order rejection, position drift, latency spikes, error
+      rate thresholds."
+    applies_to: "execution-service, strategy-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "LIVE -- autonomous-recovery alert matrix (T1-T4 tiers, ~56 UAC AlertRule entries) delivers via
+      Telegram/PagerDuty/Twilio; per-alert-code runbooks cover POSITION_DRIFT, BALANCE_DRIFT, ML_MODEL_DRIFT_DETECTED,
+      ML_INFERENCE_LATENCY_SLO. Caveat: POSITION_DRIFT runbook itself records last_executed as pending live PBMS
+      reconciliation activation (master plan Group F) -- framework is live, not every rule has fired in prod yet."
+    ssot_ref: "03-observability/alerting.md, 15-runbooks/alerting/"
+    priority: "P1"
+
+  # ===========================================================================
+  # 04-ARCHITECTURE (ARC): Pipeline, Sharding, Compute, Communication
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/04-architecture/
+  # Carries forward: items 13, 13b, 13c, 14, 15, 16, 27, 28
+  # ===========================================================================
+
+  - id: "ARC-01"
+    area: "04-architecture"
+    title: "Service in pipeline DAG"
+    description:
+      "Service has a defined position in the pipeline dependency graph. Upstream and downstream services are documented
+      in dependencies.yaml."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_14 from original checklist."
+    priority: "P1"
+
+  - id: "ARC-02"
+    area: "04-architecture"
+    section: "sharding"
+    title: "Sharding config exists"
+    description: |
+      configs/sharding.{service}.yaml exists with dimensions, CLI args, and compute recommendations defined.
+    applies_to: "pipeline"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "sharding_config_validator"
+    ssot_ref: "04-architecture/batch-live-symmetry.md"
+    ssot_file: "deployment-service/configs/sharding.{service}.yaml"
+    automated_check: "validators/architecture/sharding_config_validator.py"
+
+  - id: "ARC-03"
+    area: "04-architecture"
+    title: "CLI-GCS dimension alignment"
+    description:
+      "CLI filter args map 1:1 to GCS directory hierarchy. No args that filter within aggregated files. Parallel shards
+      never write to the same GCS path."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_13b from original checklist."
+    priority: "P1"
+
+  - id: "ARC-04"
+    area: "04-architecture"
+    title: "Standardized meta CLI args"
+    description:
+      "Service supports: --force, --log-level, --dry-run, --max-workers (if applicable), --max-results (if applicable).
+      No env vars for these."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_13c from original checklist."
+    priority: "P2"
+
+  - id: "ARC-05"
+    area: "04-architecture"
+    title: "Expected start dates entry"
+    description:
+      "Entry in configs/expected_start_dates.yaml per category/venue. Start dates define the earliest date a shard
+      should be deployed for."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_15 from original checklist."
+    priority: "P2"
+
+  - id: "ARC-06"
+    area: "04-architecture"
+    title: "Venues entry"
+    description: "Service venues listed in configs/venues.yaml for each category, if the service has hierarchical venue dimension."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_16 from original checklist. Applies if service has venue dimension."
+    priority: "P2"
+
+  - id: "ARC-07"
+    area: "04-architecture"
+    title: "Compute resources appropriate"
+    description:
+      "Compute recommendation (VM vs Cloud Run) is correct for the workload. Memory/CPU limits set appropriately. No OOM
+      or timeout during normal runs."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "ARC-08"
+    area: "04-architecture"
+    title: "Communication pattern correct"
+    description:
+      "Batch services use GCS as communication medium (file-based). Live services use embedded/in-process communication.
+      No HTTP calls between batch pipeline services."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "ARC-09"
+    area: "04-architecture"
+    title: "Architecture documented"
+    description: "docs/ARCHITECTURE.md describes design, components, data flow, and key design decisions."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_27 from original checklist."
+    priority: "P3"
+
+  - id: "ARC-10"
+    area: "04-architecture"
+    title: "Dependencies documented"
+    description:
+      "docs/DEPENDENCIES.md defines pipeline position, upstream GCS/API dependencies, downstream dependents, and
+      execution order."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_28 from original checklist."
+    priority: "P3"
+
+  # ===========================================================================
+  # 05-INFRASTRUCTURE (INF): Terraform, CI/CD, Docker, Deployment
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/05-infrastructure/
+  # Carries forward: items 01, 02, 03, 06, 06b, 06c, 09, 11, 17, 17b, 18, 23, 24, 26
+  # ===========================================================================
+
+  - id: "INF-01"
+    area: "05-infrastructure"
+    title: "Repository exists"
+    description: "Service repo is present in workspace with standard directory structure."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_01 from original checklist."
+    priority: "P0"
+
+  - id: "INF-02"
+    area: "05-infrastructure"
+    title: "Dependency management (pyproject.toml)"
+    description:
+      "pyproject.toml exists with all dependencies pinned. pip install -e . completes without errors. All imports
+      resolve. No version conflicts."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_02 from original checklist."
+    priority: "P0"
+
+  - id: "INF-03"
+    area: "05-infrastructure"
+    title: "Environment template (.env.example)"
+    description:
+      ".env.example documents all required env vars. Contains secret names, not actual values. CLOUD_PROVIDER
+      documented."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_03 from original checklist."
+    priority: "P1"
+
+  - id: "INF-04"
+    area: "05-infrastructure"
+    section: "docker"
+    title: "Dockerfile exists (multi-stage)"
+    description: |
+      Dockerfile at repo root. Multi-stage build for smaller image. Non-root user.
+      unified-trading-library installed correctly.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "semi-automated"
+    validator_id: "dockerfile_validator"
+    ssot_ref: "05-infrastructure/ci-cd.md"
+    automated_check: "validators/infrastructure/dockerfile_validator.py"
+
+  - id: "INF-05"
+    area: "05-infrastructure"
+    section: "cloud-agnostic"
+    title: "Cloud-agnostic design"
+    description: |
+      Uses get_storage_client(), get_secret_client() from unified-trading-library.
+      No direct google.cloud imports in production code. No hardcoded GCP project IDs.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "cloud_agnostic_validator"
+    ssot_ref: "04-architecture/cloud-agnostic-migration.md"
+    automated_check: "validators/security/cloud_agnostic_validator.py"
+
+  - id: "INF-06"
+    area: "05-infrastructure"
+    title: "Setup script exists"
+    description:
+      "scripts/setup.sh exists for one-command local dev environment setup. Requires Python 3.13+. Creates .venv,
+      installs deps."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_06c from original checklist."
+    priority: "P2"
+
+  - id: "INF-07"
+    area: "05-infrastructure"
+    title: "GitHub Actions quality gates"
+    description:
+      ".github/workflows/quality-gates.yml runs on push/PR. Checks out unified-trading-library. Runs unit, integration,
+      e2e, and smoke tests. Includes linting."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_09 from original checklist."
+    priority: "P1"
+
+  - id: "INF-08"
+    area: "05-infrastructure"
+    section: "ci-cd"
+    title: "Cloud Build config"
+    description: |
+      cloudbuild.yaml exists. Runs quality gates before Docker build.
+      Builds image and pushes to Artifact Registry.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "semi-automated"
+    validator_id: "cloudbuild_validator"
+    ssot_ref: "05-infrastructure/ci-cd.md"
+    automated_check: "validators/infrastructure/cloudbuild_validator.py"
+
+  - id: "INF-09"
+    area: "05-infrastructure"
+    title: "Terraform resources defined"
+    description: "GCS buckets, IAM permissions, Cloud Run job or VM config defined in terraform/. Service account configured."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_17 from original checklist."
+    priority: "P1"
+
+  - id: "INF-10"
+    area: "05-infrastructure"
+    title: "Required buckets exist"
+    description:
+      "All required input/output buckets exist and are accessible. Output buckets writable, upstream input buckets
+      readable."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_17b from original checklist."
+    priority: "P1"
+
+  - id: "INF-11"
+    area: "05-infrastructure"
+    title: "Deploy CLI works"
+    description:
+      "python deploy.py deploy --service {service} executes without errors. deploy.py calculate and --dry-run work.
+      Shard count reasonable."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_18 from original checklist."
+    priority: "P1"
+
+  - id: "INF-12"
+    area: "05-infrastructure"
+    title: "Image builds successfully"
+    description: "Cloud Build produces image in Artifact Registry after quality gates pass. Image tagged with commit SHA."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_23 from original checklist."
+    priority: "P1"
+
+  - id: "INF-13"
+    area: "05-infrastructure"
+    title: "Deployment runs successfully"
+    description: "Full deployment completes. Single shard <2 hours on Cloud Run/VM. No OOM or timeout errors. Clean logs."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_24 from original checklist."
+    priority: "P1"
+
+  - id: "INF-14"
+    area: "05-infrastructure"
+    title: "README complete"
+    description: "README.md at repo root with status, overview, quick start instructions, and links to docs/ files."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_26 from original checklist."
+    priority: "P3"
+
+  - id: "INF-15"
+    area: "05-infrastructure"
+    title: "Quickmerge script exists"
+    description:
+      "scripts/quickmerge.sh exists and is functional. Used for all pushes to main. Pre-commit hooks run; no
+      --no-verify."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  # ===========================================================================
+  # 06-CODING-STANDARDS (COD): Config, Error Handling, Tests, Quality
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/06-coding-standards/
+  # Carries forward: items 03b, 03c, 04b, 04f, 07, 08, 08b, 09b, 10, 12, 19,
+  #                  31, 32, 33
+  # ===========================================================================
+
+  # --- COD: Configuration ---
+
+  - id: "COD-01"
+    area: "06-coding-standards"
+    section: "configuration"
+    title: "Config extends UnifiedCloudConfig"
+    description: |
+      Service config class in {service}/config.py or config/ package extends UnifiedCloudConfig.
+      No direct os.getenv() anywhere in codebase. All env vars accessed via config attributes.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "no_os_getenv_validator"
+    ssot_ref: "06-coding-standards/configuration-management.md"
+    automated_check: "validators/security/no_os_getenv_validator.py"
+
+  - id: "COD-02"
+    area: "06-coding-standards"
+    section: "configuration"
+    title: "No hardcoded domain config"
+    description: |
+      No inline dicts for instrument/venue/exchange mappings. No hardcoded date ranges, API URLs, or magic numbers.
+      VenueMapping from unified-trading-library used.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "semi-automated"
+    validator_id: "hardcoded_config_validator"
+    ssot_ref: "06-coding-standards/configuration-management.md"
+    automated_check: "validators/codex/hardcoded_config_validator.py"
+
+  - id: "COD-03"
+    area: "06-coding-standards"
+    section: "configuration"
+    title: "Configuration documented"
+    description: |
+      docs/CONFIGURATION.md documents all config options, env vars, config class structure, secret management, and
+      multi-cloud support.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P3"
+    criticality: "low"
+    automation_status: "manual"
+    validator_id: null
+    ssot_ref: "06-coding-standards/configuration-management.md"
+    automated_check: null
+
+  - id: "COD-04"
+    area: "06-coding-standards"
+    section: "error-handling"
+    title: "Unified error handling decorators"
+    description: |
+      API calls use @handle_api_errors. Storage operations use @handle_storage_errors.
+      ErrorCategory/ErrorSeverity from unified-trading-library used. No bare except: clauses.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "error_handling_validator"
+    ssot_ref: "06-coding-standards/README.md#error-handling"
+    automated_check: "validators/codex/error_handling_validator.py"
+
+  - id: "COD-05"
+    area: "06-coding-standards"
+    section: "error-handling"
+    title: "No bare except clauses"
+    description: |
+      No bare 'except:' in any source file. No 'except Exception: pass' that silently swallows errors.
+      All exceptions catch specific types.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "no_bare_except_validator"
+    ssot_ref: "06-coding-standards/README.md#error-handling"
+    automated_check: "validators/codex/no_bare_except_validator.py"
+
+  - id: "COD-06"
+    area: "06-coding-standards"
+    title: "Error handling documented"
+    description: "docs/ERROR_HANDLING.md documents error categories, retry logic, recovery procedures, and DependencyChecker usage."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_31 from original checklist."
+    priority: "P3"
+
+  # --- COD: Code Quality ---
+
+  - id: "COD-07"
+    area: "06-coding-standards"
+    title: "UTC datetime compliance"
+    description:
+      "All datetime operations use UTC-aware datetimes. No datetime.now(), no datetime.utcnow(), no pd.to_datetime()
+      without utc=True for UTC data."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_04f from original checklist. See MASTER_AUDIT pattern 4."
+    priority: "P1"
+
+  - id: "COD-08"
+    area: "06-coding-standards"
+    title: "No print() for logging"
+    description:
+      "No print() statements for operational logging. Only logger.info/debug/error/warning. print() allowed only for CLI
+      user-facing output in entrypoints."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "See MASTER_AUDIT pattern 7."
+    priority: "P2"
+
+  - id: "COD-09"
+    area: "06-coding-standards"
+    title: "Imports at top of file"
+    description:
+      "All import statements at module level. No imports inside functions or methods unless documented circular
+      dependency exception."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "See MASTER_AUDIT pattern 2."
+    priority: "P2"
+
+  # --- COD: Testing ---
+
+  - id: "COD-10"
+    area: "06-coding-standards"
+    section: "testing"
+    title: "Unit tests exist"
+    description: |
+      tests/unit/ directory exists with meaningful coverage. Tests cover core business logic.
+      pytest runs without errors. Coverage > 30%.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "test_coverage_validator"
+    ssot_ref: "06-coding-standards/testing.md"
+    automated_check: "validators/codex/test_coverage_validator.py"
+
+  - id: "COD-11"
+    area: "06-coding-standards"
+    title: "E2E tests exist"
+    description: "tests/e2e/ directory exists. Tests cover main CLI commands/entrypoints with mocked external dependencies."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_08 from original checklist."
+    priority: "P2"
+
+  - id: "COD-12"
+    area: "06-coding-standards"
+    title: "Shard combinatorics smoke test"
+    description: "E2E smoke test runs for ALL valid shard dimension combinations with --max-results 1. Integrated into CI."
+    applies_to: "all"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_08b from original checklist."
+    priority: "P2"
+
+  - id: "COD-13"
+    area: "06-coding-standards"
+    title: "Dev dependencies complete"
+    description:
+      "All required dev dependencies present in pyproject.toml [dev]: pytest-xdist>=3.6.0, boto3 (if cloud-agnostic
+      tests), pytest-mock, pytest-asyncio. No tests skipping due to missing deps."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  # --- COD: Quality Gates ---
+
+  - id: "COD-14"
+    area: "06-coding-standards"
+    section: "quality-gates"
+    title: "Quality gate alignment"
+    description: |
+      Quality gates identical across local (scripts/quality-gates.sh), GitHub Actions, and Cloud Build.
+      Same Python version, same checks, same ruff rules. No || true bypasses.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "quality_gate_alignment_validator"
+    ssot_ref: "06-coding-standards/quality-gates.md"
+    automated_check: "validators/codex/quality_gate_alignment_validator.py"
+
+  - id: "COD-15"
+    area: "06-coding-standards"
+    title: "Pre-commit hooks configured"
+    description:
+      ".pre-commit-config.yaml exists with ruff formatter. pre-commit install --install-hooks run. Same ruff version as
+      CI."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_10 from original checklist."
+    priority: "P2"
+
+  - id: "COD-16"
+    area: "06-coding-standards"
+    section: "quality-gates"
+    title: "Quality gates pass"
+    description: |
+      bash scripts/quality-gates.sh --no-fix passes. All linting, formatting, and tests pass.
+      Failure blocks image build.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "quality_gates_pass_validator"
+    ssot_ref: "06-coding-standards/quality-gates.md"
+    automated_check: "validators/codex/quality_gates_pass_validator.py"
+
+  - id: "COD-17"
+    area: "06-coding-standards"
+    title: "Code runs locally"
+    description: "CLI help works. Main command runs with valid test args. No import errors. All dependencies available."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_19 from original checklist."
+    priority: "P0"
+
+  - id: "COD-18"
+    area: "06-coding-standards"
+    title: "pyproject.toml well-formed"
+    description:
+      "pyproject.toml has [project] metadata, [project.optional-dependencies] dev section, [tool.ruff] config,
+      [tool.pytest.ini_options]. All deps pinned."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "COD-19"
+    area: "06-coding-standards"
+    title: "No wasteful documentation"
+    description:
+      "No redundant IMPLEMENTATION_SUMMARY, COMPLETION_STATUS, FINAL_STATUS, *_COMPLETE, or *FIXED* docs. docs/archive/
+      empty or removed."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Carries forward item_33 from original checklist."
+    priority: "P3"
+
+  - id: "COD-20"
+    area: "06-coding-standards"
+    section: "configuration"
+    title: "No hardcoded project IDs"
+    description: |
+      No hardcoded '{project_id}' or other GCP project IDs in source code, tests, or scripts.
+      All sourced from config or env vars.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "cloud_agnostic_validator"
+    ssot_ref: "04-architecture/cloud-agnostic-migration.md"
+    automated_check: "validators/security/cloud_agnostic_validator.py"
+
+  - id: "SEC-01"
+    area: "07-security"
+    section: "secrets"
+    title: "Secrets via get_secret_client()"
+    description: |
+      All secrets accessed via get_secret_client() or get_secret_client() from unified-trading-library.
+      No hardcoded API keys, tokens, or passwords in source code.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "secrets_management_validator"
+    ssot_ref: "07-security/secrets-management.md"
+    automated_check: "validators/security/secrets_management_validator.py"
+
+  - id: "SEC-02"
+    area: "07-security"
+    section: "secrets"
+    title: ".env.example has no actual secret values"
+    description: |
+      .env.example contains secret NAMES and placeholder descriptions only.
+      No actual API keys, tokens, passwords, or connection strings.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "safe_env_files_validator"
+    ssot_ref: "07-security/secrets-management.md"
+    automated_check: "validators/security/safe_env_files_validator.py"
+
+  - id: "SEC-03"
+    area: "07-security"
+    title: "Service account least-privilege"
+    description:
+      "Service account has only the permissions required for the service to function. No Owner or Editor roles. IAM
+      bindings documented in terraform/."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "SEC-04"
+    area: "07-security"
+    title: "Dependencies pinned with versions"
+    description:
+      "All dependencies in pyproject.toml are pinned to specific versions or version ranges. No unpinned dependencies
+      that could introduce supply chain risk."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "SEC-05"
+    area: "07-security"
+    section: "credentials"
+    title: "No hardcoded credentials in code"
+    description: |
+      No API keys, bearer tokens, connection strings, or passwords in any .py file.
+      Secrets always resolved at runtime from Secret Manager or env vars.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+    criticality: "critical"
+    automation_status: "automated"
+    validator_id: "no_hardcoded_credentials_validator"
+    ssot_ref: "07-security/secrets-management.md"
+    automated_check: "validators/security/no_hardcoded_credentials_validator.py"
+
+  - id: "SEC-06"
+    area: "07-security"
+    title: "Client credential isolation"
+    description:
+      "Client-specific credentials (exchange API keys, account secrets) are isolated per client. One client's
+      credentials cannot access another client's resources."
+    applies_to: "execution-service, strategy-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P0"
+
+  - id: "SEC-07"
+    area: "07-security"
+    title: "Dependency scanning [PARTIALLY LIVE]"
+    description:
+      "Automated dependency vulnerability scanning configured in CI. Known CVEs in dependencies are tracked and
+      addressed."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "PARTIALLY LIVE -- Trivy Docker image CRITICAL/HIGH scanning is confirmed IMPLEMENTED and blocking
+      (currently wired on 2 repos' cloudbuild.yaml). pip-audit blocking-QG status is INTERNALLY CONTRADICTORY
+      within its own SSOT (TL;DR + bottom status table say [PLANNED], the detailed body section shows an
+      IMPLEMENTED-BLOCKING bash integration into quality-gates.sh) -- flagged there as unresolved, not fixed here."
+    ssot_ref: "07-security/dependency-scanning.md"
+    priority: "P2"
+
+  # ===========================================================================
+  # 08-WORKFLOWS (WRK): DR, Rollback, Reconciliation, Lifecycle
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/08-workflows/
+  # ===========================================================================
+
+  - id: "WRK-01"
+    area: "08-workflows"
+    title: "Rollback procedure exists"
+    description:
+      "Documented procedure to roll back to a previous known-good state. For batch: re-deploy previous image, reprocess
+      affected dates. For live: revert to previous image, reconcile positions."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "WRK-02"
+    area: "08-workflows"
+    title: "Disaster recovery procedure [LIVE]"
+    description:
+      "Documented DR procedure covering: data backup locations, recovery steps, RPO/RTO targets, manual intervention
+      steps."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "LIVE -- documented RTO/RPO targets per environment, Tier 0-3 recovery methods with concrete gcloud
+      rollback commands, GCS backup locations via resolve_bucket_name(), SEV1-4 incident protocol, dependency
+      failure matrix, and a quarterly DR-test procedure."
+    ssot_ref: "05-infrastructure/disaster-recovery.md"
+    priority: "P2"
+
+  - id: "WRK-03"
+    area: "08-workflows"
+    title: "Incident response runbook [LIVE]"
+    description:
+      "Runbook exists for common failure scenarios: OOM, data corruption, upstream failure, exchange outage. Includes
+      escalation path and communication template."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "LIVE -- codex/15-runbooks/ is the SSOT for live-trading on-call runbooks: per-alert-code procedures
+      (alerting/), an incidents/ postmortem set, safe-service-restart-procedures.md, smoke-testing-playbook.md,
+      and backfill-completion-playbook.md, each with a declared owner/cadence/verifier."
+    ssot_ref: "15-runbooks/README.md"
+    priority: "P2"
+
+  - id: "WRK-04"
+    area: "08-workflows"
+    title: "Position reconciliation [live only] [PARTIALLY LIVE]"
+    description:
+      "Live services reconcile internal position state against exchange-reported positions. Discrepancies logged at
+      ERROR and trigger alerts."
+    applies_to: "execution-service, strategy-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "PARTIALLY LIVE -- the paper<->batch<->live determinism-spine reconciliation is partially shipped
+      (gaps G3/G4/G5 DONE; G1/G2 open per the doc's own status line)."
+    ssot_ref: "09-strategy/operational/paper-batch-live-reconciliation.md"
+    priority: "P0"
+
+  - id: "WRK-05"
+    area: "08-workflows"
+    title: "Client lifecycle workflow [PARTIALLY LIVE]"
+    description:
+      "Defined workflow for client onboarding (credential setup, strategy assignment, position initialization) and
+      offboarding (position close, credential revocation)."
+    applies_to: "execution-service, strategy-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "PARTIALLY LIVE -- UTL ClientOnboardingStateMachine implements the DRAFT->KYC_SUBMITTED->KYC_APPROVED->
+      DEPOSITED->SUBSCRIBED->LIVE (SUSPENDED terminal) state machine and persists to GCS; May-23 MVP scope is a
+      manual single client with no production KYC provider -- multi-client onboarding and automated
+      state-progression webhooks are deferred."
+    ssot_ref: "04-architecture/client-lifecycle-state-machine.md"
+    priority: "P2"
+
+  - id: "WRK-06"
+    area: "08-workflows"
+    title: "Expiry and settlement handling"
+    description:
+      "Workflow exists for instrument expiry: position auto-close or roll, settlement processing, instrument removal
+      from active universe."
+    applies_to: "instruments-service, strategy-service, execution-service"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  # ===========================================================================
+  # 09-ANALYSIS (ANL): Backtest, Live Performance, Cost
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/09-analysis/
+  # ===========================================================================
+
+  - id: "ANL-01"
+    area: "09-analysis"
+    title: "Backtest analysis metrics defined"
+    description:
+      "Backtest results include standard metrics: Sharpe ratio, max drawdown, win rate, profit factor, total return,
+      annualized return. Metrics computed consistently across strategies."
+    applies_to: "strategy-service, ml-training-service"
+    mode: "batch"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "ANL-02"
+    area: "09-analysis"
+    title: "Live performance metrics defined [LIVE]"
+    description:
+      "Live trading performance tracked with: PnL, Sharpe ratio, fill rate, slippage, latency percentiles. Metrics
+      stored for historical comparison."
+    applies_to: "strategy-service, execution-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "LIVE -- canonical PnLFactor x PnLLayer attribution (incl. SLIPPAGE as its own factor, fill vs benchmark
+      price), Sharpe ratio (rolling 30/90/365-day), and the three-method HWM (TWR/Notional/PnL-recovery) are all
+      specified against the live T+1 batch-is-official-P&L path. Fill-rate and latency-percentile tracking are
+      not separately confirmed in this doc."
+    ssot_ref: "09-strategy/architecture-v2/cross-cutting/pnl-attribution.md"
+    priority: "P2"
+
+  - id: "ANL-03"
+    area: "09-analysis"
+    title: "Cost analysis framework [PARTIALLY LIVE]"
+    description:
+      "Framework to track and attribute infrastructure costs: compute cost per shard, storage cost per service, total
+      pipeline cost per run."
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "PARTIALLY LIVE -- a standing VM preemption + attempted_failed billing-waste monitoring contract exists
+      (manual audit via the /vm-preemption-billing-waste-audit skill) but it is scoped to VM/spot billing waste
+      specifically, not the fuller per-shard compute / per-service storage / per-run pipeline cost attribution
+      this item describes."
+    ssot_ref: "05-infrastructure/vm-preemption-and-billing-waste-monitoring.md"
+    priority: "P3"
+
+  - id: "ANL-04"
+    area: "09-analysis"
+    title: "Backtest vs live comparison [PARTIALLY LIVE]"
+    description: "Framework to compare backtest predictions against live results. Drift detection for model degradation."
+    applies_to: "strategy-service, ml-inference-service"
+    mode: "live"
+    status: "not_assessed"
+    evidence: ""
+    notes:
+      "PARTIALLY LIVE -- the ML_MODEL_DRIFT_DETECTED live-alerting rule design + drift_monitor.py (accuracy-drop
+      detection, MODEL_RETUNE_REQUESTED) cover the model-degradation-drift slice; a full framework comparing
+      backtest predictions against live results is not confirmed to exist."
+    ssot_ref: "15-runbooks/alerting/ml-alerting-rules.md"
+    priority: "P3"
+
+  # ==============================================================================
+  # NEW ITEMS (Round 2 Enhancements)
+  # ==============================================================================
+
+  - id: "COD-21"
+    area: "06-coding-standards"
+    section: "testing"
+    title: "Regression tests for known-fixed bugs"
+    description: |
+      When a bug is fixed, a regression test is added that reproduces the original bug.
+      Test naming: test_regression_{issue_number}_{description}
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+    criticality: "medium"
+    automation_status: "manual"
+    validator_id: null
+    ssot_ref: "06-coding-standards/testing.md"
+    automated_check: null
+
+  - id: "COD-22"
+    area: "06-coding-standards"
+    title: "No TODO/FIXME comments in production code"
+    description: "All TODO/FIXME comments are converted to GitHub issues; no placeholder functions without issue references"
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+
+  - id: "COD-23"
+    area: "06-coding-standards"
+    title: "Type hints on public API signatures"
+    description: "All public functions and methods have type hints; modern Python 3.13+ syntax where compatible"
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "All services use Python 3.13"
+    priority: "P3"
+
+  - id: "COD-24"
+    area: "06-coding-standards"
+    title: "No try-except import fallbacks"
+    description:
+      "No try-except imports that silently create fallback implementations; imports must fail loudly if dependency
+      missing"
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Common anti-pattern: try: from ucs import log_event; except: def log_event(*a): pass"
+    priority: "P1"
+
+  - id: "COD-25"
+    area: "06-coding-standards"
+    title: "File size under ~400 lines"
+    description: "No source file exceeds ~400 lines; large files split by responsibility (SRP)"
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: "Guideline, not hard rule; some generated/config files may exceed"
+    priority: "P3"
+
+  - id: "DAT-19"
+    area: "02-data"
+    title: "Normalized publish interface"
+    description: "Service publishes output through StandardizedDomainCloudService with automatic schema validation"
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "DAT-20"
+    area: "02-data"
+    title: "Normalized subscribe interface"
+    description: "Service subscribes to upstream data through domain clients (not direct GCS path construction)"
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+
+  - id: "ARC-11"
+    area: "04-architecture"
+    section: "batch-live-symmetry"
+    title: "Batch-live symmetry"
+    description: |
+      Service supports --mode batch|live with shared engine; mode-specific logic isolated to adapter seams only.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+    criticality: "medium"
+    automation_status: "semi-automated"
+    validator_id: "batch_live_symmetry_validator"
+    ssot_ref: "04-architecture/batch-live-symmetry.md"
+    automated_check: "validators/architecture/batch_live_symmetry_validator.py"
+
+  # ===========================================================================
+  # 11-PROJECT-MANAGEMENT (BASE): Service Classification and MVP Coverage
+  # ===========================================================================
+  # Reference: unified-trading-pm/codex/11-project-management/
+  # New in the 2026-08-08 reconciliation -- carried from the v2.0 "enhanced" template,
+  # which had no v1.0 counterpart for these 2 ids.
+  # ===========================================================================
+
+  - id: "BASE-19"
+    area: "11-project-management"
+    section: "classification"
+    title: "Service classification metadata complete"
+    description: |
+      Service registry entry includes:
+      - deployment_type: standalone, bundled, library
+      - mode_support: batch, live, both
+      - ui_type: observability, control, analysis, none
+      - sharding_dimensions: category, venue, date, instrument_type, etc.
+    applies_to: "all"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P2"
+    criticality: "medium"
+    automation_status: "automated"
+    validator_id: "service_classification_validator"
+    ssot_ref: "11-project-management/service-registry.yaml"
+    ssot_file: "unified-trading-pm/codex/11-project-management/service-registry.yaml"
+    automated_check: "validators/classification/service_classification_validator.py"
+
+  - id: "BASE-22"
+    area: "11-project-management"
+    section: "mvp-coverage"
+    title: "MVP data coverage validated"
+    description: |
+      Service supports MVP universe per mvp-universe.yaml:
+      - Instruments: BTC, ETH
+      - CEFI venues: BINANCE-SPOT, BINANCE-FUTURES, OKX, UPBIT, COINBASE, HYPERLIQUID, ASTER
+      - DeFi venues: AAVE_V3_ETHEREUM, UNISWAP_V3_ETH, COMPOUND_V3_ETH
+      - TradFi venues: CME, CBOE, NYSE
+    applies_to: "pipeline"
+    mode: "both"
+    status: "not_assessed"
+    evidence: ""
+    notes: ""
+    priority: "P1"
+    criticality: "high"
+    automation_status: "automated"
+    validator_id: "mvp_coverage_validator"
+    ssot_ref: "11-project-management/mvp-universe.yaml"
+    ssot_file: "unified-trading-pm/codex/11-project-management/mvp-universe.yaml"
+    automated_check: "validators/classification/mvp_coverage_validator.py"
+
+# ==============================================================================
+# Summary
+# ==============================================================================
+summary:
+  total_items: 112
+  pass: 0
+  fail: 0
+  partial: 0
+  not_assessed: 112
+  na: 0
+  overall_score: 0.0
+  batch_score: 0.0
+  live_score: 0.0
+  p0_pass_rate: 0.0
+  p1_pass_rate: 0.0
+  p2_pass_rate: 0.0
+  p3_pass_rate: 0.0
+  blockers: []
+  top_failures: []
+  next_actions: []
+# ==============================================================================
+# Item Count by Area
+# ==============================================================================
+# DOM (01-domain):             8 items  (DOM-01 to DOM-08)
+# DAT (02-data):               20 items  (DAT-01 to DAT-20)
+# OBS (03-observability):      14 items  (OBS-01 to OBS-14)
+# ARC (04-architecture):       11 items  (ARC-01 to ARC-11)
+# INF (05-infrastructure):     15 items  (INF-01 to INF-15)
+# COD (06-coding-standards):   25 items  (COD-01 to COD-25)
+# SEC (07-security):            7 items  (SEC-01 to SEC-07)
+# WRK (08-workflows):           6 items  (WRK-01 to WRK-06)
+# ANL (09-analysis):            4 items  (ANL-01 to ANL-04)
+# BASE (11-project-management): 2 items  (BASE-19, BASE-22 -- carried from v2.0, no v1.0 counterpart)
+# ---
+# TOTAL:                      112 items  [LIVE]: 4 items  [PARTIALLY LIVE]: 5 items
+# ==============================================================================
+#
+# Priority Distribution:
+#   P0 (Critical):  13 items
+#   P1 (High):      42 items
+#   P2 (Medium):    39 items
+#   P3 (Low):       18 items
+#
+# Mode Distribution:
+#   both:           86 items
+#   batch:          21 items
+#   live:            5 items
+# ==============================================================================
