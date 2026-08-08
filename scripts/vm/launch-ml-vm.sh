@@ -62,6 +62,9 @@
 # from vm-exec-with-gcs-tee.sh (deployed 2026-04-19 after the VM silent-
 # hang class bug — memory project_vm_hang_class_bug_and_mdps_setup_fix).
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 # ── Defaults + arg parsing ──
 DRY_RUN=false
@@ -181,6 +184,7 @@ else
     gcloud compute instances create "$VM_NAME" \
         --project="$PROJECT" \
         --zone="$ZONE" \
+        --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT}")" \
         --machine-type="$MACHINE_TYPE" \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \

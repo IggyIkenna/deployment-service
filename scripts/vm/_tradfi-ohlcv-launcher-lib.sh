@@ -387,6 +387,7 @@ ohlcv_create_vm() {
         gcloud compute instances create "$vm_name_safe" \
             --project="$TRADFI_OHLCV_PROJECT" \
             --zone="$TRADFI_OHLCV_ZONE" \
+            --service-account="$(lc_tier_service_account "$deployment_env" "$TRADFI_OHLCV_PROJECT")" \
             --machine-type="$TRADFI_OHLCV_MACHINE" \
             ${provisioning_flags} \
             --image-family=ubuntu-2404-lts-amd64 \

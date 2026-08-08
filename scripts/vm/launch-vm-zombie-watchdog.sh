@@ -100,6 +100,8 @@ if $DRY_RUN; then DRY_FLAG="--dry-run"; fi
 # pulls the latest VM_PREFIX_TO_BUCKET. The repo is the SSOT; GCS is a
 # build artifact. This refresh is idempotent and cheap.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 LOCAL_PY="$SCRIPT_DIR/vm_zombie_watchdog.py"
 if [[ ! -f "$LOCAL_PY" ]]; then
     echo "ERROR: $LOCAL_PY not found — cannot refresh GCS copy." >&2
@@ -268,6 +270,7 @@ printf '%s\n' "$STARTUP" > "$STARTUP_FILE"
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT}")" \
     --machine-type=e2-small \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \

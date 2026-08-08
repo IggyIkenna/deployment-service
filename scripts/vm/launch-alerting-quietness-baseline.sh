@@ -52,6 +52,9 @@
 # (10 VMs / 6h / 4 useful writes) — same shape applies to baseline VMs that
 # would race on the alert-event stream.
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 FORCE=false
 DURATION_HOURS=48
@@ -92,15 +95,9 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-1060025368044}"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="alerting-quietness-${RUN_TS}"
-# SA: default to the Compute Engine default SA (matches running watchdog +
-# every other actively-deployed VM in this project — see `gcloud compute
-# instances list --format='value(serviceAccounts.email)'`). The historical
-# data-pipeline SA referenced in some launchers does not exist in this
-# project (verified 2026-05-12 — every `gcloud iam service-accounts list`
-# enumeration; absence is the cause of the `serviceAccount of type was not
-# found` failure mode). Override via
-# `SERVICE_ACCOUNT=foo@... bash launch-alerting-quietness-baseline.sh` if needed.
-SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
+# SA: tier SA per hybrid-C ruling (bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md P3.2).
+# Override via `SERVICE_ACCOUNT=foo@... bash launch-alerting-quietness-baseline.sh` if needed.
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT}")}"
 
 # ── Singleton lock ──────────────────────────────────────────────────────────
 if ! $FORCE; then
