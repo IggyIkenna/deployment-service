@@ -293,8 +293,10 @@ above that it is genuinely stale. It may be another dispatch's actively
 progressing entity-fleet VM; deleting a live VM destroys hours of in-progress
 work (see zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md
 "Incident 2 correction" — this exact refusal message is the documented root
-cause of 3 prior agent-deleted-own-fleet incidents). If confirmed stale:
-  gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
+cause of 3 prior agent-deleted-own-fleet incidents). If, after that check, it is genuinely stale, construct the delete
+command yourself — do not copy-paste one from this message — per infra.md
+STEP 0.65's 3-signal staleness check (heartbeat age, run.log tail, manifest
+mtime); when unsure, escalate instead of deleting.
 EOF
     exit 1
   fi
