@@ -292,10 +292,12 @@ class PeriodicTierState:
         if not isinstance(data, dict):
             self._last_run = {}
             return
-        entries = data.get("last_run", {})
-        if not isinstance(entries, dict):
+        data = cast("dict[str, object]", data)
+        entries_raw = data.get("last_run", {})
+        if not isinstance(entries_raw, dict):
             self._last_run = {}
             return
+        entries = cast("dict[str, object]", entries_raw)
         self._last_run = {str(k): str(v) for k, v in entries.items()}
 
     def get_last_run(self, tier_name: str) -> datetime | None:
@@ -369,7 +371,7 @@ def resolve_source_key(svc: dict[str, object]) -> str:
     if isinstance(explicit, str) and explicit:
         return explicit
     args_raw = svc.get("args", {})
-    args: dict[str, object] = args_raw if isinstance(args_raw, dict) else {}
+    args: dict[str, object] = cast("dict[str, object]", args_raw) if isinstance(args_raw, dict) else {}
     entity = args.get("--sports-entity")
     if isinstance(entity, str):
         if entity == "TRANSFERS":

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, timedelta
-from typing import Protocol
+from typing import Protocol, cast
 
 from unified_api_contracts.sports import (  # noqa: UAC sports facade (domain-level) is the canonical surface — not a deep import
     get_expected_leagues_for_source,
@@ -96,7 +96,7 @@ class PeriodicTierDispatcher:
         is absent — effectively single-day ``today..today``.
         """
         window_raw = section.get("rolling_window")
-        window: dict[str, object] = window_raw if isinstance(window_raw, dict) else {}
+        window: dict[str, object] = cast("dict[str, object]", window_raw) if isinstance(window_raw, dict) else {}
         lookback = as_int(window.get("lookback_days"), default=0)
         lookahead = as_int(window.get("lookahead_days"), default=0)
         force_window = bool(window.get("force_overwrite", False))
@@ -130,7 +130,7 @@ class PeriodicTierDispatcher:
         section_raw = self._config.get("discovery")
         if not isinstance(section_raw, dict):
             return 0
-        section: dict[str, object] = section_raw
+        section: dict[str, object] = cast("dict[str, object]", section_raw)
         tier_name = "discovery"
 
         frequency_hours = as_float(section.get("frequency_hours"), default=6.0)
@@ -192,7 +192,7 @@ class PeriodicTierDispatcher:
         section_raw = self._config.get("reference")
         if not isinstance(section_raw, dict):
             return 0
-        section: dict[str, object] = section_raw
+        section: dict[str, object] = cast("dict[str, object]", section_raw)
         tier_name = "reference"
 
         frequency_hours = as_float(section.get("frequency_hours"), default=24.0)
@@ -327,12 +327,13 @@ def _services_from(section: dict[str, object]) -> list[dict[str, object]]:
     services_raw = section.get("services", [])
     if not isinstance(services_raw, list):
         return []
-    return [s for s in services_raw if isinstance(s, dict)]
+    services_list = cast("list[object]", services_raw)
+    return [cast("dict[str, object]", s) for s in services_list if isinstance(s, dict)]
 
 
 def _args_of(svc: dict[str, object]) -> dict[str, object]:
     args_raw = svc.get("args", {})
-    return args_raw if isinstance(args_raw, dict) else {}
+    return cast("dict[str, object]", args_raw) if isinstance(args_raw, dict) else {}
 
 
 def scope_to_leagues(svc: dict[str, object], leagues: list[str]) -> dict[str, object]:

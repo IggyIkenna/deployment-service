@@ -118,7 +118,11 @@ class SportsTriggerScheduler:
         self._latency_recorder = (
             latency_recorder if latency_recorder is not None else self._build_latency_recorder(enabled=record_latency)
         )
-        dispatch_fn = (lambda **kw: self._dispatch_local(**kw)) if self._backend == "local" else None
+
+        def _local_dispatch_fn(**kw: str) -> bool:
+            return self._dispatch_local(**kw)
+
+        dispatch_fn: Callable[..., bool] | None = _local_dispatch_fn if self._backend == "local" else None
         self._first_success_poller = self._build_first_success_poller(state_bucket, dispatch_fn)
 
     def _build_first_success_poller(
@@ -447,7 +451,9 @@ class SportsTriggerScheduler:
             ag = str(svc_config.get("asset_group") or svc_config.get("category", "SPORTS"))
             description = str(svc_config.get("description", ""))
             extra_args_raw = svc_config.get("args", {})
-            extra_args: dict[str, object] = extra_args_raw if isinstance(extra_args_raw, dict) else {}
+            extra_args: dict[str, object] = (
+                cast("dict[str, object]", extra_args_raw) if isinstance(extra_args_raw, dict) else {}
+            )
 
             cmd = self._build_cli_cmd(
                 service=service,
