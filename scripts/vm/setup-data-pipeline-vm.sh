@@ -1984,6 +1984,12 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
     echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
   fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Reset vm-exec-with-gcs-tee.sh's STALL_PROGRESS_REGEX="uploaded" watchdog at every
+  # chunk boundary, including chunks where all dates were pre-flight-skipped (no GCS
+  # writes → no real "uploaded" lines). Without this, a long stretch of already-covered
+  # dates starves the watchdog of matches for >1800s and triggers a false WORKER_STALLED
+  # kill (root cause: cefi_track2_backfill_vm_preempted_no_recovery_2026_07_30.md).
+  echo "CEFI_CHUNK_DONE: uploaded=0 chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE}"
 done
 echo "cefi-coverage-backfill loop complete: \$(date -u)"
 CEFI_COVERAGE_CHUNK_LOOP_EOF
