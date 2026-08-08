@@ -14,6 +14,16 @@ body/details — it does **not** decide whether to suppress or change paging cad
 stale cell. That is a separate, still-open policy question for the operator/alerting-service
 owner (visible pressure on a known backlog vs. alert fatigue) — this module only makes the
 distinction VISIBLE, deliberately leaving delivery behavior untouched.
+
+**Update (operator ruling 2026-08-08)**: a sibling question — should a PERMANENT retirement
+marker (a venue migration/relabel one-off stamping ``superseded_by_*`` on ``error_reason``,
+e.g. the 1,404 BLAZESTAKE ``lst_rates`` rows) count toward the alert threshold at all — was
+resolved separately, at the COUNT level, in ``meta_watchers.py``
+(``SUPERSEDED_BY_REASON_PREFIX`` / ``_read_attempted_failed_cells``): such rows are now
+excluded from ``attempted_failed``/``ratio``/``high`` entirely, upstream of this module's
+staleness labeling. This module's own STATIC BACKLOG labeling/paging-cadence question for a
+genuinely stale (but not superseded) cell remains open, per the still-open policy question
+above.
 """
 
 from __future__ import annotations

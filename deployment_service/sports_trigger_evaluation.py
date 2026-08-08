@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict, cast
 
-from .sports_trigger_state import FixtureInfo, as_int
+from .sports_trigger_state import FixtureInfo, as_float, as_int
 
 logger = logging.getLogger(__name__)
 
@@ -72,21 +72,24 @@ def evaluate_pre_match_triggers(
     now = datetime.now(UTC)
     events: list[TriggerEvent] = []
 
-    pre_match = config.get("pre_match", {})
-    if not isinstance(pre_match, dict):
+    pre_match_raw = config.get("pre_match", {})
+    if not isinstance(pre_match_raw, dict):
         return events
+    pre_match = cast("dict[str, object]", pre_match_raw)
 
-    triggers = pre_match.get("triggers", [])
-    if not isinstance(triggers, list):
+    triggers_raw = pre_match.get("triggers", [])
+    if not isinstance(triggers_raw, list):
         return events
+    triggers = cast("list[object]", triggers_raw)
 
-    for trigger in triggers:
-        if not isinstance(trigger, dict):
+    for trigger_item in triggers:
+        if not isinstance(trigger_item, dict):
             continue
+        trigger = cast("dict[str, object]", trigger_item)
 
         name = str(trigger.get("name", ""))  # noqa: qg-empty-fallback — this function already defaults every trigger field permissively (offset_hours/tolerance_minutes below); a missing name is a config-authoring gap, not a silent data-correctness masking
-        offset_hours = float(trigger.get("offset_hours", 0))
-        tolerance_minutes = int(trigger.get("tolerance_minutes", 30))
+        offset_hours = as_float(trigger.get("offset_hours", 0), default=0.0)
+        tolerance_minutes = as_int(trigger.get("tolerance_minutes", 30), default=30)
 
         for fixture in fixtures:
             fixture_id = fixture["fixture_id"]
@@ -109,7 +112,10 @@ def evaluate_pre_match_triggers(
                 services_raw = trigger.get("services", [])
                 if not isinstance(services_raw, list):
                     services_raw = []
-                services: list[dict[str, object]] = [s for s in services_raw if isinstance(s, dict)]
+                services_list = cast("list[object]", services_raw)
+                services: list[dict[str, object]] = [
+                    cast("dict[str, object]", s) for s in services_list if isinstance(s, dict)
+                ]
 
                 # ---- league odds-coverage filter ----
                 # sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md
@@ -151,13 +157,15 @@ def evaluate_post_match_triggers(
     now = datetime.now(UTC)
     events: list[TriggerEvent] = []
 
-    post_match = config.get("post_match", {})
-    if not isinstance(post_match, dict):
+    post_match_raw = config.get("post_match", {})
+    if not isinstance(post_match_raw, dict):
         return events
+    post_match = cast("dict[str, object]", post_match_raw)
 
-    triggers = post_match.get("triggers", [])
-    if not isinstance(triggers, list):
+    triggers_raw = post_match.get("triggers", [])
+    if not isinstance(triggers_raw, list):
         return events
+    triggers = cast("list[object]", triggers_raw)
 
     for trigger_raw in triggers:
         if not isinstance(trigger_raw, dict):
@@ -189,9 +197,10 @@ def evaluate_post_match_triggers(
             delta_minutes = abs((now - fire_at).total_seconds()) / 60
 
             if delta_minutes <= tolerance_minutes:
-                services = trigger.get("services", [])
-                if not isinstance(services, list):
-                    services = []
+                services_raw = trigger.get("services", [])
+                if not isinstance(services_raw, list):
+                    services_raw = []
+                services_list = cast("list[object]", services_raw)
 
                 events.append(
                     TriggerEvent(
@@ -200,7 +209,7 @@ def evaluate_post_match_triggers(
                         league_id=fixture["league_id"],
                         kickoff_utc=fixture["kickoff_utc"],
                         fire_at_utc=fire_at.isoformat(),
-                        services=[s for s in services if isinstance(s, dict)],
+                        services=[cast("dict[str, str]", s) for s in services_list if isinstance(s, dict)],
                     )
                 )
 
