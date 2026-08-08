@@ -59,6 +59,18 @@ set -e
 
 # shellcheck source=lib/launcher_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+# LIGHTER-ZKSYNC's derivative_ticker leg delegates to TardisAdapter.download_batch
+# (datasets.tardis.dev) and was removed from tardis-concurrency-guard.sh's
+# TARDIS_CAP_EXEMPT_VENUES 2026-07-30 — it genuinely contends for the single shared
+# Tardis IP, unlike HYPERLIQUID/ASTER/EXTENDED-STARKNET (S3/native-REST, never touch
+# Tardis). This launcher previously neither sourced this guard nor stamped
+# VM_TARDIS_CONSUMER=1 (correct when it only covered cap-exempt venues); now that
+# LIGHTER-ZKSYNC is in its VENUES universe, source it unconditionally and gate per-venue
+# via tardis_venue_list_needs_guard (see _launch_vm below) — mirrors
+# launch-mtds-backfill-vm.sh / launch-cefi-sharded-backfill.sh's integration.
+# SSOT: unified-trading-pm/plans/active/issues/tardis_concurrent_ip_lockout_2026_07_12.md
+# shellcheck source=tardis-concurrency-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
 
 PROJECT=central-element-323112
 ZONE=asia-northeast1-c
@@ -185,12 +197,26 @@ _launch_vm() {
     meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
     meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
     meta+=",MANIFEST_PER_VM_SHARDS=true"
+    # Self-declaring Tardis-cap model (see the guard source note above): stamp ONLY
+    # for venues that actually open a datasets.tardis.dev connection, so
+    # tardis-concurrency-guard.sh's fleet count stays accurate for the cap-exempt
+    # venues (HYPERLIQUID/ASTER/EXTENDED-STARKNET) this same launcher also drives.
+    tardis_venue_list_needs_guard "$venue" && meta+=",VM_TARDIS_CONSUMER=1"
 
     echo "[LAUNCH] ${vm_name}  venue=${venue}  ${start_date}→${end_date}  types=${DATA_TYPES}"
 
     if [[ "$DRY_RUN" == "1" ]]; then
         echo "[DRY-RUN] would launch: gcloud compute instances create ${vm_name} --zone=${ZONE} --machine-type=${machine}"
         return
+    fi
+
+    # Tardis concurrent-VM cap (operator HARD RULE 2026-07-16, cap=1) — actual
+    # creation-time gate, not just the pre-flight estimate a caller might have made.
+    # Refuses (non-zero) rather than waiting: any shards this launcher already
+    # created for this venue stay running; re-run the remaining scope once they
+    # finish. Cap-exempt venues (HYPERLIQUID/ASTER/EXTENDED-STARKNET) pass through.
+    if tardis_venue_list_needs_guard "$venue"; then
+        tardis_guard_reserve_slot "${ZONE}" "${PROJECT}" "${vm_name}" || return 1
     fi
 
     # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
