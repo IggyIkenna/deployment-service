@@ -40,6 +40,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pandas as pd
@@ -227,6 +228,7 @@ def _cron_miss_key(target: FreshnessTarget) -> str:
 ATTEMPTED_FAILED_ABS_THRESHOLD = 500  # absolute attempted_failed count per (ag, data_type) → page
 ATTEMPTED_FAILED_RATIO_THRESHOLD = 0.10  # attempted_failed / (captured + attempted_failed) → page
 MIN_ATTEMPTED_FAILED_FOR_RATIO = 50  # ratio path ignored below this count (avoid micro-cell noise)
+ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS = 14  # only count attempted_failed rows within this window
 # STATIC_BACKLOG_STALE_DAYS_THRESHOLD: labeling-only constant, see attempted_failed_staleness.py.
 # Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
 AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
@@ -483,6 +485,7 @@ def _read_attempted_failed_cells(
     asset_group: str,
     bucket: str,
     blob: str = AVAILABILITY_INDEX_BLOB,
+    now: datetime | None = None,
 ) -> list[AttemptedFailedCell]:
     """Read the consolidated ``_index`` parquet for one AG bucket and return per
     ``data_type`` captured / attempted_failed counts + the high-failure verdict.
@@ -491,6 +494,16 @@ def _read_attempted_failed_cells(
     pure + credential-free; the cli wires the real GCS-backed client. A
     missing/unreadable/empty/schema-less index reads as zero cells (never raises) —
     an absent index is the catalogue/cron probes' job, not this one's.
+
+    ``attempted_failed`` counts and the HIGH verdict are computed over
+    ``ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS`` only — rows older than the window no
+    longer count toward the threshold, closing the DP-FETCH-009 false-positive class
+    where a cell with fixed historical failures kept CRITICAL-paging forever. Rows
+    with a missing/unparseable ``attempted_at`` (NaT) are treated as within the
+    window (conservative: unknown age should not silently suppress a genuine alert).
+    ``max_attempted_at`` and staleness metadata still use the LIFETIME set so the
+    alert body retains diagnostic context even for fully-stale cells.
+    ``now`` is injectable for deterministic tests; defaults to ``datetime.now(UTC)``.
     """
     try:
         if not storage_client.blob_exists(bucket, blob):
@@ -507,26 +520,33 @@ def _read_attempted_failed_cells(
     if index.empty or "capture_status" not in index.columns or "data_type" not in index.columns:
         return []
 
+    _now = now or datetime.now(UTC)
+    window_cutoff = pd.Timestamp(_now - timedelta(days=ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS))
     status = index["capture_status"].astype(str)
     data_type_col = index["data_type"].astype(str)
     attempted_at_col = index["attempted_at"].astype(str)
     captured_mask = status == "captured"
     failed_mask = status == "attempted_failed"
+    attempted_at_ts = pd.to_datetime(attempted_at_col, utc=True, errors="coerce")
+    # NaT (missing/unparseable timestamp) rows are treated as within the window.
+    within_window_mask = attempted_at_ts.isna() | (attempted_at_ts >= window_cutoff)
+    windowed_failed_mask = failed_mask & within_window_mask
 
     cells: list[AttemptedFailedCell] = []
     # Stable order so the alert set + tests are deterministic (no set iteration).
     for data_type in sorted(data_type_col.unique()):
         dt_mask = data_type_col == data_type
         captured = int((dt_mask & captured_mask).sum())
-        attempted_failed = int((dt_mask & failed_mask).sum())
+        attempted_failed = int((dt_mask & windowed_failed_mask).sum())
         denom = captured + attempted_failed
         ratio = (attempted_failed / denom) if denom > 0 else 0.0
         high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
             attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
         )
+        # Lifetime failed rows for staleness metadata (retains diagnostic info on stale cells).
         failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
         max_attempted_at = max(failed_attempted_at, default="")
-        recent_attempted_failed = int(recent_activity_mask(failed_attempted_at).sum())
+        recent_attempted_failed = int(recent_activity_mask(failed_attempted_at, now=_now).sum())
         cells.append(
             AttemptedFailedCell(
                 asset_group=asset_group,
@@ -537,7 +557,7 @@ def _read_attempted_failed_cells(
                 high=high,
                 known_dead=is_known_dead(asset_group, data_type, max_attempted_at=max_attempted_at),
                 max_attempted_at=max_attempted_at,
-                stale_days=stale_days_since(max_attempted_at),
+                stale_days=stale_days_since(max_attempted_at, now=_now),
                 recent_attempted_failed=recent_attempted_failed,
             )
         )
@@ -554,6 +574,7 @@ def check_high_attempted_failed(
     min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
     renag_tracker: RenagTracker | None = None,
     renag_cooldown_seconds: float = DEFAULT_RENAG_COOLDOWN_SECONDS,
+    now: datetime | None = None,
 ) -> list[AttemptedFailedCell]:
     """DP-FETCH-009 — page when a ``(asset_group, data_type)`` cell has a HIGH
     ``attempted_failed`` count/ratio in the consolidated manifest ``_index``.
@@ -565,7 +586,8 @@ def check_high_attempted_failed(
     market-data ``_index`` bucket (``label`` = the asset_group); the read is the
     same blob the consolidator writes.
 
-    A cell is HIGH when its ``attempted_failed`` count crosses
+    A cell is HIGH when its ``attempted_failed`` count (over the trailing
+    ``ATTEMPTED_FAILED_TRAILING_WINDOW_DAYS`` window) crosses
     ``ATTEMPTED_FAILED_ABS_THRESHOLD`` OR (count >= ``MIN_ATTEMPTED_FAILED_FOR_RATIO``
     AND ratio >= ``ATTEMPTED_FAILED_RATIO_THRESHOLD``). When ``miss_tracker`` is
     provided the CRITICAL alert fires only after the SAME cell has been HIGH for
@@ -591,6 +613,7 @@ def check_high_attempted_failed(
             asset_group=target.label,
             bucket=target.bucket,
             blob=target.blob_path or AVAILABILITY_INDEX_BLOB,
+            now=now,
         )
         all_cells.extend(cells)
         for cell in cells:
