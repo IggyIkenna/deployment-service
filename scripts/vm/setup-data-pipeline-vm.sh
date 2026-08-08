@@ -1201,7 +1201,7 @@ _launch_with_tee() {
   # (asset_group UNKNOWN) — they run no data worker, so must not look like one.
   local _hb_prefix=""
   if [[ "${VM_ASSET_GROUP:-UNKNOWN}" != "UNKNOWN" ]]; then
-    _hb_prefix="( while true; do echo \"PIPELINE_HEARTBEAT vm=${VM_NAME_SELF} ag=${VM_ASSET_GROUP} task=${VM_TASK:-} source=vm-life-emitter ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ)\"; sleep 60; done ) & __DP_HB_PID=\$!; trap 'kill \"\$__DP_HB_PID\" 2>/dev/null || true' EXIT; "
+    _hb_prefix="( trap '' SIGPIPE; while true; do echo \"PIPELINE_HEARTBEAT vm=${VM_NAME_SELF} ag=${VM_ASSET_GROUP} task=${VM_TASK:-} source=vm-life-emitter ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ)\" 2>/dev/null || true; sleep 60; done ) & __DP_HB_PID=\$!; trap 'kill \"\$__DP_HB_PID\" 2>/dev/null || true' EXIT; "
     cmd="${_hb_prefix}${cmd}"
     log "VM-life PIPELINE_HEARTBEAT marker emitter wired into tee'd command (60s, → run.log)"
   fi
